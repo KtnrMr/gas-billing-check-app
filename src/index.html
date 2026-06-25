@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <?!= include('style'); ?>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>請求確定チェック</h1>
+        <p id="app-version"></p>
+      </div>
+      <label class="month-picker">対象月
+        <input id="target-month" type="month">
+      </label>
+      <button id="load-month-button" class="primary block">読み込み</button>
+      <nav class="nav">
+        <button class="nav-item active" data-screen="dashboard">ダッシュボード</button>
+        <button class="nav-item" data-screen="honobono">ほのぼの取込</button>
+        <button class="nav-item" data-screen="adjustment">請求調整</button>
+        <button class="nav-item" data-screen="cash-master">現金支払いマスタ</button>
+        <button class="nav-item" data-screen="eshu-input">e集ちゃん入力作業</button>
+        <button class="nav-item" data-screen="eshu-import">e集ちゃん取込・照合</button>
+        <button class="nav-item" data-screen="confirm">確定・履歴</button>
+      </nav>
+      <div id="month-status" class="month-status">未読込</div>
+    </aside>
+
+    <main class="main">
+      <div id="message" class="message" hidden></div>
+      <div id="loading" class="loading" hidden>処理中...</div>
+
+      <section id="screen-dashboard" class="screen">
+        <header class="screen-header">
+          <h2>ダッシュボード</h2>
+          <p>件数と金額の内訳を確認します。</p>
+        </header>
+        <div id="summary-cards" class="summary-grid"></div>
+        <div class="list-tabs">
+          <button class="list-tab active" data-list-tab="入力対象">入力対象</button>
+          <button class="list-tab" data-list-tab="請求保留">請求保留</button>
+          <button class="list-tab" data-list-tab="現金支払い">現金支払い</button>
+          <button class="list-tab" data-list-tab="合算・追加請求">合算・追加請求</button>
+          <button class="list-tab" data-list-tab="要確認">要確認</button>
+          <button class="list-tab" data-list-tab="照合結果">照合結果</button>
+        </div>
+        <div id="dashboard-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-honobono" class="screen" hidden>
+        <header class="screen-header">
+          <h2>ほのぼのCSV取込</h2>
+          <p>ほのぼのから出力した請求CSVを取り込みます。</p>
+        </header>
+        <div class="panel">
+          <label>CSVファイル<input id="honobono-file" type="file" accept=".csv,text/csv"></label>
+          <button id="honobono-import-button" class="primary">取込実行</button>
+        </div>
+        <div id="honobono-diff" class="diff-panel" hidden></div>
+        <div id="honobono-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-adjustment" class="screen" hidden>
+        <header class="screen-header">
+          <h2>請求調整</h2>
+          <p>現金支払い・保留・追加請求などを登録します。</p>
+        </header>
+        <div class="panel form-grid">
+          <label>ID検索<input id="adj-search" type="search" placeholder="ID・氏名・フリガナ"></label>
+          <label><input id="adj-include-ended" type="checkbox">利用終了者を含める</label>
+          <button id="adj-search-button">検索</button>
+        </div>
+        <div id="adj-search-results" class="table-wrap"></div>
+        <div class="panel form-grid">
+          <h3>調整登録</h3>
+          <label>照合用ID<input id="adj-match-id" type="text"></label>
+          <label>氏名<input id="adj-name" type="text"></label>
+          <label>調整区分
+            <select id="adj-type">
+              <option value="現金支払い">現金支払い</option>
+              <option value="請求保留">請求保留</option>
+              <option value="追加請求">追加請求</option>
+              <option value="過去分のみ請求">過去分のみ請求</option>
+              <option value="金額修正">金額修正</option>
+            </select>
+          </label>
+          <label>対象請求月<input id="adj-target-month" type="month"></label>
+          <label>調整金額<input id="adj-amount" type="number"></label>
+          <label>理由<input id="adj-reason" type="text"></label>
+          <label class="wide">メモ<input id="adj-memo" type="text"></label>
+          <button id="adj-save-button" class="primary">登録</button>
+        </div>
+        <div id="adjustment-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-cash-master" class="screen" hidden>
+        <header class="screen-header">
+          <h2>現金支払いマスタ</h2>
+          <p>毎月自動で現金支払い扱いにする利用者を管理します。</p>
+        </header>
+        <div class="panel form-grid">
+          <label>照合用ID<input id="cash-match-id" type="text"></label>
+          <label>氏名<input id="cash-name" type="text"></label>
+          <label><input id="cash-usually" type="checkbox" checked>通常現金</label>
+          <label>適用開始月<input id="cash-start-month" type="month"></label>
+          <label>適用終了月<input id="cash-end-month" type="month"></label>
+          <label class="wide">理由・メモ<input id="cash-memo" type="text"></label>
+          <button id="cash-save-button" class="primary">保存</button>
+        </div>
+        <div id="cash-master-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-eshu-input" class="screen" hidden>
+        <header class="screen-header">
+          <h2>e集ちゃんⅡ入力作業モード</h2>
+          <p id="last-copy-info">最後にコピー：なし</p>
+        </header>
+        <div class="panel inline-form">
+          <label>並び替え
+            <select id="eshu-sort">
+              <option value="id">顧客番号順</option>
+              <option value="name">氏名順</option>
+            </select>
+          </label>
+          <button id="eshu-refresh-button">再表示</button>
+        </div>
+        <div id="eshu-input-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-eshu-import" class="screen" hidden>
+        <header class="screen-header">
+          <h2>e集ちゃんCSV取込・照合</h2>
+          <p>e集ちゃんⅡから出力したCSVを取り込み、照合します。</p>
+        </header>
+        <div class="panel inline-form">
+          <label>CSVファイル<input id="eshu-file" type="file" accept=".csv,text/csv"></label>
+          <button id="eshu-import-button" class="primary">取込・照合</button>
+          <button id="reconcile-button">照合のみ再実行</button>
+        </div>
+        <h3 class="section-title">e集ちゃん取込データ（最新回）</h3>
+        <div id="eshu-import-table-wrap" class="table-wrap"></div>
+        <h3 class="section-title">照合結果</h3>
+        <div id="reconcile-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-confirm" class="screen" hidden>
+        <header class="screen-header">
+          <h2>確定・履歴</h2>
+        </header>
+        <div class="panel inline-form">
+          <button id="confirm-button" class="primary">請求確定</button>
+          <label>確定解除理由<input id="unconfirm-reason" type="text" placeholder="解除理由を入力"></label>
+          <button id="unconfirm-button">確定解除</button>
+        </div>
+        <div id="history-table-wrap" class="table-wrap"></div>
+        <h3>氏名確認済み一覧</h3>
+        <p class="hint">一度確認した利用者は、翌月以降も氏名注意が表示されません。</p>
+        <div id="name-confirmed-table-wrap" class="table-wrap"></div>
+      </section>
+    </main>
+  </div>
+  <?!= include('script'); ?>
+</body>
+</html>

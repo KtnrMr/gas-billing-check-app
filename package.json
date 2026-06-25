@@ -1,0 +1,15 @@
+{
+  "name": "gas-billing-check-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "請求確定チェックアプリ（ほのぼの → e集ちゃんⅡ 照合）",
+  "scripts": {
+    "clasp:login": "clasp login",
+    "clasp:pull": "clasp pull",
+    "clasp:push": "clasp push",
+    "clasp:open": "clasp open-script"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.3.0"
+  }
+}

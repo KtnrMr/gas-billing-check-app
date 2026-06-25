@@ -1,0 +1,787 @@
+<script>
+(function() {
+  var state = {
+    targetMonth: '',
+    month: null,
+    dashboard: null,
+    adjustments: [],
+    cashMaster: [],
+    inputTargets: [],
+    reconcile: [],
+    history: [],
+    nameConfirmed: [],
+    currentListTab: '入力対象',
+    editable: true,
+    loadedScreens: {},
+    listTabCache: {}
+  };
+
+  var pendingRequests = 0;
+
+  function $(id) { return document.getElementById(id); }
+
+  function showMessage(text, type) {
+    var el = $('message');
+    el.textContent = text;
+    el.className = 'message ' + (type || 'info');
+    el.hidden = false;
+  }
+
+  function clearMessage() { $('message').hidden = true; }
+
+  function setLoading(isLoading) {
+    $('loading').hidden = !isLoading;
+  }
+
+  function beginLoading(showOverlay) {
+    pendingRequests += 1;
+    if (showOverlay) setLoading(true);
+  }
+
+  function endLoading(showOverlay) {
+    pendingRequests = Math.max(0, pendingRequests - 1);
+    if (showOverlay && pendingRequests === 0) setLoading(false);
+  }
+
+  function runServerEx(method, args, showOverlay) {
+    if (showOverlay) clearMessage();
+    beginLoading(showOverlay);
+    return new Promise(function(resolve, reject) {
+      var runner = google.script.run
+        .withSuccessHandler(function(result) {
+          endLoading(showOverlay);
+          resolve(result);
+        })
+        .withFailureHandler(function(error) {
+          endLoading(showOverlay);
+          if (showOverlay) showMessage(error.message || String(error), 'error');
+          reject(error);
+        });
+      if (typeof runner[method] !== 'function') {
+        endLoading(showOverlay);
+        var missingMsg = 'サーバー関数「' + method + '」が利用できません。GASでデプロイを「新バージョン」に更新してください。';
+        if (showOverlay) showMessage(missingMsg, 'error');
+        reject(new Error(missingMsg));
+        return;
+      }
+      runner[method].apply(runner, args);
+    });
+  }
+
+  function runServer(method) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return runServerEx(method, args, true);
+  }
+
+  function runServerSilent(method) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return runServerEx(method, args, false);
+  }
+
+  function getActiveReconcileWrapId() {
+    var eshuScreen = $('screen-eshu-import');
+    if (eshuScreen && !eshuScreen.hidden) return 'reconcile-table-wrap';
+    return 'dashboard-table-wrap';
+  }
+
+  function handleImportError(error) {
+    showMessage((error && error.message) || String(error), 'error');
+  }
+
+  function applyImportResult(result, label) {
+    if (!result) return false;
+    if (result.reconcile && result.reconcile.rows && result.reconcile.rows.length) {
+      state.reconcile = result.reconcile.rows;
+      renderReconcileTable(state.reconcile, 'reconcile-table-wrap');
+      renderReconcileTable(state.reconcile, 'dashboard-table-wrap');
+    }
+    var importCount = result.count;
+    var reconcileCount = result.reconcile ? result.reconcile.count : 0;
+    if (importCount != null) {
+      showMessage(
+        label + ' ' + importCount + '件を取込しました。照合結果 ' + reconcileCount + '件。',
+        'success'
+      );
+      return true;
+    }
+    if (reconcileCount > 0) {
+      showMessage('照合結果 ' + reconcileCount + '件。', 'success');
+      return true;
+    }
+    return false;
+  }
+  function formatYen(value) {
+    var num = Number(value) || 0;
+    return num.toLocaleString('ja-JP') + '円';
+  }
+
+  function defaultTargetMonthValue() {
+    var d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+  }
+
+  function currentMonthValue() {
+    return $('target-month').value;
+  }
+
+  function resolveTargetMonth() {
+    var month = currentMonthValue() || state.targetMonth;
+    if (month) state.targetMonth = month;
+    return month;
+  }
+
+  function requireTargetMonth() {
+    var month = resolveTargetMonth();
+    if (!month) {
+      showMessage('対象月を選択してください。', 'error');
+      return '';
+    }
+    return month;
+  }
+
+  function isEditable() {
+    return state.editable && state.month && state.month.status !== '確定済';
+  }
+
+  function updateEditableUi() {
+    var editable = isEditable();
+    $('honobono-import-button').disabled = !editable;
+    $('eshu-import-button').disabled = !editable;
+    $('reconcile-button').disabled = !editable;
+    $('adj-save-button').disabled = !editable;
+    $('cash-save-button').disabled = !editable;
+    $('confirm-button').disabled = !editable || !state.month || state.month.status === '確定済';
+    $('unconfirm-button').disabled = !state.month || state.month.status !== '確定済';
+    $('month-status').textContent = state.month
+      ? state.targetMonth + ' / ' + state.month.status
+      : '未読込';
+  }
+
+  function renderSummary() {
+    var wrap = $('summary-cards');
+    if (!state.dashboard) {
+      wrap.innerHTML = '';
+      return;
+    }
+    var s = state.dashboard && state.dashboard.summary;
+    if (!s) {
+      wrap.innerHTML = '';
+      return;
+    }
+    var cards = [
+      ['ほのぼの取込', s.honobonoCount + '件', formatYen(s.honobonoTotal)],
+      ['通常請求', s.normalCount + '件', formatYen(s.normalTotal)],
+      ['追加請求あり', s.additionalCount + '件', formatYen(s.additionalTotal)],
+      ['過去分のみ', s.pastOnlyCount + '件', formatYen(s.pastOnlyTotal)],
+      ['現金支払い', s.cashCount + '件', formatYen(s.cashTotal)],
+      ['請求保留', s.holdCount + '件', formatYen(s.holdTotal)],
+      ['e集ちゃん入力予定', s.inputCount + '件', formatYen(s.inputTotal)],
+      ['不一致', ((state.month && state.month.mismatchCount) || 0) + '件', '']
+    ];
+    wrap.innerHTML = cards.map(function(card) {
+      return '<div class="summary-card"><div class="label">' + card[0] +
+        '</div><div class="value">' + card[1] + '</div><div class="sub">' + card[2] + '</div></div>';
+    }).join('');
+  }
+
+  function renderTable(wrapId, columns, rows, rowClassFn) {
+    var wrap = $(wrapId);
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="panel">データがありません。</div>';
+      return;
+    }
+    var html = ['<table class="data-table"><thead><tr>'];
+    columns.forEach(function(col) {
+      html.push('<th>' + col.label + '</th>');
+    });
+    html.push('</tr></thead><tbody>');
+    rows.forEach(function(row) {
+      var cls = rowClassFn ? rowClassFn(row) : '';
+      html.push('<tr class="' + cls + '">');
+      columns.forEach(function(col) {
+        var value = typeof col.render === 'function' ? col.render(row) : (row[col.key] || '');
+        html.push('<td>' + value + '</td>');
+      });
+      html.push('</tr>');
+    });
+    html.push('</tbody></table>');
+    wrap.innerHTML = html.join('');
+  }
+
+  function loadListTab(tabName, force) {
+    if (!state.targetMonth) return;
+    var cacheKey = state.targetMonth + ':' + tabName;
+    if (!force && state.listTabCache[cacheKey]) {
+      renderListTab(tabName, state.listTabCache[cacheKey]);
+      return;
+    }
+    if (tabName === '照合結果') {
+      runServerSilent('getReconcileResults', state.targetMonth).then(function(rows) {
+        state.reconcile = rows || [];
+        state.listTabCache[cacheKey] = rows || [];
+        renderListTab(tabName, rows || []);
+      }).catch(function() {
+        renderListTab(tabName, []);
+      });
+      return;
+    }
+    runServerSilent('getListTabData', state.targetMonth, tabName).then(function(rows) {
+      state.listTabCache[cacheKey] = rows || [];
+      renderListTab(tabName, rows || []);
+    }).catch(function() {
+      renderListTab(tabName, []);
+    });
+  }
+
+  function renderListTab(tabName, rows) {
+    if (tabName === '照合結果') {
+      renderReconcileTable(rows, getActiveReconcileWrapId());
+      return;
+    }
+    renderTable('dashboard-table-wrap', [
+        { key: 'matchId', label: 'ID' },
+        { key: 'name', label: '氏名' },
+        { key: 'billingStatus', label: '請求状態' },
+        { key: 'honobonoAmount', label: 'ほのぼの請求額', render: function(r) { return formatYen(r.honobonoAmount); } },
+        { key: 'additionalAmount', label: '追加額', render: function(r) { return formatYen(r.additionalAmount); } },
+        { key: 'finalAmount', label: '最終請求額', render: function(r) { return formatYen(r.finalAmount); } },
+        { key: 'warnings', label: '注意', render: function(r) {
+          var text = (r.warnings || []).join(', ');
+          if ((r.warnings || []).indexOf('氏名注意') >= 0) {
+            text += ' <button data-confirm-name="' + r.matchId + '">確認済みにする</button>';
+          }
+          return text;
+        } }
+      ], rows);
+      bindNameConfirmButtons('dashboard-table-wrap');
+  }
+
+  function renderReconcileTable(rows, wrapId) {
+    var targetWrap = wrapId || getActiveReconcileWrapId();
+    renderTable(targetWrap, [
+      { key: '照合用ID', label: 'ID' },
+      { key: '基本情報氏名', label: '氏名' },
+      { key: 'ほのぼの氏名', label: 'ほのぼの氏名' },
+      { key: 'e集ちゃん氏名', label: 'e集ちゃん氏名' },
+      { key: '請求状態', label: '請求状態' },
+      { key: '最終請求額', label: '最終請求額', render: function(r) { return formatYen(r['最終請求額']); } },
+      { key: 'e集ちゃん請求金額', label: 'e集ちゃん金額', render: function(r) { return formatYen(r['e集ちゃん請求金額']); } },
+      { key: '差額', label: '差額', render: function(r) { return formatYen(r['差額']); } },
+      { key: '判定', label: '判定', render: function(r) {
+        var cls = r['判定'] === 'OK' ? 'judgment-ok' : (r['判定'] === '氏名注意' ? 'judgment-warn' : 'judgment-error');
+        return '<span class="' + cls + '">' + r['判定'] + '</span>';
+      } },
+      { key: 'actions', label: '操作', render: function(r) {
+        if (r['判定'] !== '氏名注意') return '';
+        return '<button data-confirm-name="' + r['照合用ID'] + '">氏名確認済みにする</button>';
+      } }
+    ], rows);
+    bindNameConfirmButtons(targetWrap);
+  }
+
+  function bindNameConfirmButtons(wrapId) {
+    var wrap = $(wrapId);
+    if (!wrap) return;
+    wrap.querySelectorAll('[data-confirm-name]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-confirm-name');
+        var memo = window.prompt('確認メモ（任意）', '旧字・表記差異を確認済み');
+        runServer('confirmNameWarning', matchId, memo || '', state.targetMonth).then(function() {
+          invalidateMonthCache();
+          return reloadMonthSnapshot();
+        });
+      });
+    });
+  }
+
+  function renderHonobonoTable(force) {
+    if (!state.targetMonth) return;
+    if (!force && state.loadedScreens.honobono === state.targetMonth) return;
+    runServerSilent('getHonobonoImports', state.targetMonth).then(function(result) {
+      state.loadedScreens.honobono = state.targetMonth;
+      renderTable('honobono-table-wrap', [
+        { key: 'matchId', label: 'ID' },
+        { key: 'name', label: '利用者名' },
+        { key: 'masterName', label: '基本情報氏名' },
+        { key: 'masterCategory', label: 'マスタ区分' },
+        { key: 'amount', label: '請求額', render: function(r) { return formatYen(r.amount); } },
+        { key: 'judgment', label: '取込判定' }
+      ], (result && result.rows) || []);
+    }).catch(function() {});
+  }
+
+  function renderAdjustmentTable() {
+    renderTable('adjustment-table-wrap', [
+      { key: 'matchId', label: 'ID' },
+      { key: 'name', label: '氏名' },
+      { key: 'type', label: '調整区分' },
+      { key: 'targetBillingMonth', label: '対象請求月' },
+      { key: 'amount', label: '調整金額', render: function(r) { return formatYen(r.amount); } },
+      { key: 'reason', label: '理由' },
+      { key: 'id', label: '操作', render: function(r) {
+        if (!isEditable()) return '';
+        return '<button data-delete-adj="' + r.id + '">削除</button>';
+      } }
+    ], state.adjustments);
+    document.querySelectorAll('[data-delete-adj]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        runServer('deleteAdjustment', button.getAttribute('data-delete-adj')).then(function() {
+          return reloadMonth();
+        });
+      });
+    });
+  }
+
+  function renderCashMasterTable() {
+    renderTable('cash-master-table-wrap', [
+      { key: '照合用ID', label: 'ID' },
+      { key: '氏名', label: '氏名' },
+      { key: '通常現金', label: '通常現金' },
+      { key: '適用開始月', label: '適用開始月' },
+      { key: '適用終了月', label: '適用終了月' },
+      { key: '理由・メモ', label: 'メモ' }
+    ], state.cashMaster);
+  }
+
+  function renderEshuInputTable(force) {
+    if (!state.targetMonth) return;
+    if (!force && state.loadedScreens['eshu-input'] === state.targetMonth) return;
+    var sortBy = $('eshu-sort').value;
+    runServerSilent('getInputTargetList', state.targetMonth, sortBy).then(function(rows) {
+      state.loadedScreens['eshu-input'] = state.targetMonth;
+      state.inputTargets = rows;
+      var lastCopyId = state.month ? state.month.lastCopyId : '';
+      var completeMarkId = state.month ? state.month.completeMarkId : '';
+      renderTable('eshu-input-table-wrap', [
+        { key: 'mark', label: '目印', render: function(r) {
+          if (r.matchId === lastCopyId) return '最新コピー';
+          if (r.matchId === completeMarkId) return 'ここまで完了';
+          return '';
+        } },
+        { key: 'matchId', label: 'ID' },
+        { key: 'name', label: '氏名' },
+        { key: 'finalAmount', label: '最終請求額', render: function(r) { return formatYen(r.finalAmount); } },
+        { key: 'actions', label: '操作', render: function(r) {
+          return '<button data-copy-amount="' + r.matchId + '" data-copy-value="' + r.finalAmount + '" data-copy-name="' + r.name + '">金額コピー</button> ' +
+            '<button data-complete-mark="' + r.matchId + '">完了マーク</button>';
+        } }
+      ], rows, function(r) {
+        if (r.matchId === lastCopyId) return 'row-latest-copy';
+        if (r.matchId === completeMarkId) return 'row-complete-mark';
+        return '';
+      });
+
+      document.querySelectorAll('[data-copy-amount]').forEach(function(button) {
+        button.addEventListener('click', function() {
+          var amount = button.getAttribute('data-copy-value');
+          copyText(amount).then(function() {
+            return runServer('saveWorkState', state.targetMonth, {
+              lastCopy: {
+                matchId: button.getAttribute('data-copy-amount'),
+                amount: amount
+              }
+            });
+          }).then(function(month) {
+            state.month = month;
+            updateLastCopyInfo();
+            renderEshuInputTable(true);
+            showMessage('金額をコピーしました: ' + amount, 'success');
+          });
+        });
+      });
+
+      document.querySelectorAll('[data-complete-mark]').forEach(function(button) {
+        button.addEventListener('click', function() {
+          var matchId = button.getAttribute('data-complete-mark');
+          var current = state.month ? state.month.completeMarkId : '';
+          var nextId = current === matchId ? '' : matchId;
+          runServer('saveWorkState', state.targetMonth, { completeMarkId: nextId }).then(function(month) {
+            state.month = month;
+            renderEshuInputTable(true);
+          });
+        });
+      });
+    }).catch(function() {});
+  }
+
+  function updateLastCopyInfo() {
+    var info = '最後にコピー：なし';
+    if (state.month && state.month.lastCopyId) {
+      info = '最後にコピー：' + state.month.lastCopyId + ' / ' +
+        formatYen(state.month.lastCopyAmount) + ' / ' + (state.month.lastCopyAt || '');
+    }
+    $('last-copy-info').textContent = info;
+  }
+
+  function renderNameConfirmedTable() {
+    renderTable('name-confirmed-table-wrap', [
+      { key: 'matchId', label: 'ID' },
+      { key: 'name', label: '氏名' },
+      { key: 'confirmedAt', label: '確認日時' },
+      { key: 'confirmedBy', label: '確認者' },
+      { key: 'memo', label: 'メモ' }
+    ], state.nameConfirmed || []);
+  }
+
+  function renderHistoryTable() {
+    renderTable('history-table-wrap', [
+      { key: '日時', label: '日時' },
+      { key: '操作者', label: '操作者' },
+      { key: '操作種別', label: '操作種別' },
+      { key: '対象ID', label: '対象ID' },
+      { key: '対象氏名', label: '対象氏名' },
+      { key: 'メモ', label: 'メモ' }
+    ], state.history);
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(String(text));
+    }
+    return new Promise(function(resolve, reject) {
+      try {
+        var textarea = document.createElement('textarea');
+        textarea.value = String(text);
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function arrayBufferToBase64Payload(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var chunkSize = 0x8000;
+    var binary = '';
+    var i;
+    for (i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return 'B64:' + btoa(binary);
+  }
+
+  function readFile(fileInput) {
+    return new Promise(function(resolve, reject) {
+      var file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        reject(new Error('ファイルを選択してください。'));
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function(event) {
+        resolve(arrayBufferToBase64Payload(event.target.result));
+      };
+      reader.onerror = function() { reject(new Error('ファイルの読み込みに失敗しました。')); };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function loadSecondaryMonthData() {
+    var month = state.targetMonth;
+    if (!month) return Promise.resolve();
+    return Promise.all([
+      runServerSilent('getAdjustments', month).catch(function() { return []; }),
+      runServerSilent('getCashMasterList').catch(function() { return []; }),
+      runServerSilent('getHistory', month).catch(function() { return []; }),
+      runServerSilent('getNameConfirmedList').catch(function() { return []; })
+    ]).then(function(parts) {
+      state.adjustments = parts[0] || [];
+      state.cashMaster = parts[1] || [];
+      state.history = (parts[2] || []).slice(0, 100);
+      state.nameConfirmed = parts[3] || [];
+      renderAdjustmentTable();
+      renderCashMasterTable();
+      renderNameConfirmedTable();
+      renderHistoryTable();
+    });
+  }
+
+  function loadMonthView(month) {
+    if (typeof google.script.run.getMonthView === 'function') {
+      return runServer('getMonthView', month);
+    }
+    if (typeof google.script.run.getMonthInfo === 'function') {
+      return runServer('getMonthInfo', month).then(function(monthInfo) {
+        if (!monthInfo) return null;
+        return { month: monthInfo, dashboard: null };
+      });
+    }
+    return Promise.resolve(null);
+  }
+
+  function invalidateMonthCache() {
+    state.loadedScreens = {};
+    state.listTabCache = {};
+  }
+
+  function renderFromState() {
+    state.editable = !state.month || state.month.status !== '確定済';
+    renderSummary();
+    updateLastCopyInfo();
+    updateEditableUi();
+  }
+
+  function applyState(data) {
+    if (!data) {
+      showMessage('データの取得に失敗しました。もう一度「読み込み」を押してください。', 'error');
+      return false;
+    }
+    if (data.month !== undefined) state.month = data.month || null;
+    if (data.dashboard !== undefined) state.dashboard = data.dashboard || null;
+    if (data.reconcile !== undefined) state.reconcile = data.reconcile || [];
+    renderFromState();
+    return true;
+  }
+
+  function reloadMonthSnapshot() {
+    var month = currentMonthValue();
+    if (!month) {
+      showMessage('対象月を選択してください。', 'error');
+      return Promise.resolve(false);
+    }
+    state.targetMonth = month;
+    invalidateMonthCache();
+    return loadMonthView(month).then(function(data) {
+      return applyState(data);
+    }).catch(function(error) {
+      handleImportError(error);
+      return false;
+    });
+  }
+
+  function reloadMonth() {
+    var month = currentMonthValue();
+    if (!month) {
+      showMessage('対象月を選択してください。', 'error');
+      return Promise.resolve(false);
+    }
+    state.targetMonth = month;
+    invalidateMonthCache();
+    return loadMonthView(month).then(function(data) {
+      if (!data) {
+        showMessage('データの取得に失敗しました。もう一度「読み込み」を押してください。', 'error');
+        return false;
+      }
+      applyState(data);
+      loadListTab(state.currentListTab, true);
+      return loadSecondaryMonthData().then(function() {
+        showMessage('読み込みました。', 'success');
+        return true;
+      });
+    }).catch(function(error) {
+      handleImportError(error);
+      return false;
+    });
+  }
+
+  function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(function(screen) {
+      screen.hidden = screen.id !== 'screen-' + name;
+    });
+    document.querySelectorAll('.nav-item').forEach(function(button) {
+      button.classList.toggle('active', button.getAttribute('data-screen') === name);
+    });
+    if (name === 'dashboard') loadListTab(state.currentListTab);
+    if (name === 'honobono') renderHonobonoTable();
+    if (name === 'eshu-input') renderEshuInputTable();
+    if (name === 'eshu-import') {
+      loadListTab('照合結果', !state.listTabCache[state.targetMonth + ':照合結果']);
+      renderEshuImportTable();
+    }
+    if (name === 'adjustment') renderAdjustmentTable();
+    if (name === 'cash-master') renderCashMasterTable();
+    if (name === 'confirm') renderHistoryTable();
+  }
+
+  function renderEshuImportTable(force) {
+    if (!state.targetMonth) return;
+    if (!force && state.loadedScreens['eshu-import'] === state.targetMonth) return;
+    runServerSilent('getEshuImports', state.targetMonth).then(function(result) {
+      state.loadedScreens['eshu-import'] = state.targetMonth;
+      renderTable('eshu-import-table-wrap', [
+        { key: '顧客番号', label: '顧客番号' },
+        { key: '照合用ID', label: '照合用ID' },
+        { key: '顧客名', label: '顧客名' },
+        { key: '請求金額', label: '請求金額', render: function(r) { return formatYen(r['請求金額']); } },
+        { key: '取込判定', label: '取込判定' },
+        { key: '備考', label: '備考' }
+      ], result.rows || []);
+    }).catch(function() {});
+  }
+
+  function initNav() {
+    document.querySelectorAll('.nav-item').forEach(function(button) {
+      button.addEventListener('click', function() {
+        showScreen(button.getAttribute('data-screen'));
+      });
+    });
+    document.querySelectorAll('.list-tab').forEach(function(button) {
+      button.addEventListener('click', function() {
+        document.querySelectorAll('.list-tab').forEach(function(tab) {
+          tab.classList.remove('active');
+        });
+        button.classList.add('active');
+        state.currentListTab = button.getAttribute('data-list-tab');
+        loadListTab(state.currentListTab);
+      });
+    });
+  }
+
+  function initActions() {
+    $('load-month-button').addEventListener('click', reloadMonth);
+
+    $('honobono-import-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      readFile($('honobono-file')).then(function(csvText) {
+        return runServer('importHonobonoCsv', month, csvText);
+      }).then(function(result) {
+        if (!result) {
+          showMessage('取込処理の応答がありませんでした。読み込みで取込結果を確認してください。', 'info');
+          return reloadMonthSnapshot();
+        }
+        if (result.diff) {
+          var diff = result.diff;
+          var html = '<h3>再取込差分</h3><ul>';
+          (diff.removed || []).forEach(function(item) {
+            html += '<li>削除: ' + item.matchId + '（前回 ' + formatYen(item.previousAmount) + '）</li>';
+          });
+          (diff.added || []).forEach(function(item) {
+            html += '<li>追加: ' + item.matchId + '（' + formatYen(item.currentAmount) + '）</li>';
+          });
+          (diff.changed || []).forEach(function(item) {
+            html += '<li>金額変更: ' + item.matchId + '（' + formatYen(item.previousAmount) + ' → ' + formatYen(item.currentAmount) + '）</li>';
+          });
+          html += '</ul>';
+          var panel = $('honobono-diff');
+          panel.innerHTML = html;
+          panel.hidden = false;
+        } else {
+          var diffPanel = $('honobono-diff');
+          if (diffPanel) {
+            diffPanel.innerHTML = '';
+            diffPanel.hidden = true;
+          }
+        }
+        showMessage('ほのぼの ' + result.count + '件を取込しました。', 'success');
+        invalidateMonthCache();
+        return reloadMonthSnapshot().then(function() {
+          renderHonobonoTable(true);
+        });
+      }).catch(handleImportError);
+    });
+
+    $('adj-search-button').addEventListener('click', function() {
+      runServer('searchMasterUsers', $('adj-search').value, $('adj-include-ended').checked).then(function(rows) {
+        renderTable('adj-search-results', [
+          { key: 'matchId', label: 'ID' },
+          { key: 'name', label: '氏名' },
+          { key: 'kana', label: 'フリガナ' },
+          { key: 'category', label: '区分' },
+          { key: 'pick', label: '選択', render: function(r) {
+            return '<button data-pick-user="' + r.matchId + '" data-pick-name="' + r.name + '">選択</button>';
+          } }
+        ], rows);
+        document.querySelectorAll('[data-pick-user]').forEach(function(button) {
+          button.addEventListener('click', function() {
+            $('adj-match-id').value = button.getAttribute('data-pick-user');
+            $('adj-name').value = button.getAttribute('data-pick-name');
+          });
+        });
+      });
+    });
+
+    $('adj-save-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      runServer('saveAdjustment', {
+        targetMonth: month,
+        matchId: $('adj-match-id').value,
+        name: $('adj-name').value,
+        type: $('adj-type').value,
+        targetBillingMonth: $('adj-target-month').value,
+        amount: $('adj-amount').value,
+        reason: $('adj-reason').value,
+        memo: $('adj-memo').value
+      }).then(function() { return reloadMonth(); });
+    });
+
+    $('cash-save-button').addEventListener('click', function() {
+      runServer('saveCashMaster', {
+        matchId: $('cash-match-id').value,
+        name: $('cash-name').value,
+        usuallyCash: $('cash-usually').checked,
+        startMonth: $('cash-start-month').value,
+        endMonth: $('cash-end-month').value,
+        memo: $('cash-memo').value
+      }).then(function() { return reloadMonth(); });
+    });
+
+    $('eshu-refresh-button').addEventListener('click', function() { renderEshuInputTable(true); });
+    $('eshu-sort').addEventListener('change', function() { renderEshuInputTable(true); });
+
+    $('eshu-import-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      readFile($('eshu-file')).then(function(csvText) {
+        return runServer('importEshuCsv', month, csvText);
+      }).then(function(result) {
+        applyImportResult(result, 'e集ちゃん');
+        return reloadMonthSnapshot().then(function() {
+          renderEshuImportTable(true);
+          loadListTab('照合結果', true);
+        });
+      }).catch(handleImportError);
+    });
+
+    $('reconcile-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      runServer('runReconcile', month).then(function(result) {
+        if (!result) {
+          showMessage('照合処理の応答がありませんでした。読み込みで結果を確認してください。', 'info');
+          return reloadMonthSnapshot();
+        }
+        applyImportResult(result, '照合');
+        return reloadMonthSnapshot().then(function() {
+          renderEshuImportTable(true);
+          loadListTab('照合結果', true);
+        });
+      }).catch(handleImportError);
+    });
+
+    $('confirm-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      if (!confirm('この月の請求を確定しますか？')) return;
+      runServer('confirmMonth', month).then(function() { return reloadMonth(); });
+    });
+
+    $('unconfirm-button').addEventListener('click', function() {
+      var month = requireTargetMonth();
+      if (!month) return;
+      var reason = $('unconfirm-reason').value;
+      runServer('unconfirmMonth', month, reason).then(function() { return reloadMonth(); });
+    });
+  }
+
+  function init() {
+    initNav();
+    initActions();
+    runServerSilent('bootstrapApp').then(function(result) {
+      if (result && result.version) {
+        $('app-version').textContent = 'v' + result.version;
+      }
+      $('target-month').value = defaultTargetMonthValue();
+      return reloadMonth();
+    }).catch(handleImportError);
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
