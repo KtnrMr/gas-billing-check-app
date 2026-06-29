@@ -12,7 +12,8 @@ function include(filename) {
 function bootstrapApp() {
   validateConfig_();
   return {
-    version: APP.VERSION
+    version: APP.VERSION,
+    masterCache: getMasterUserCacheStatus()
   };
 }
 
@@ -31,13 +32,18 @@ function getAppState(targetMonth) {
 /** 月情報＋集計サマリー（照合結果は含めない） */
 function getMonthView(targetMonth) {
   validateConfig_();
-  var month = normalizeYearMonth_(targetMonth);
-  if (!month) throw new Error('対象月が不正です。');
-  ensureMonthRow_(month);
-  return {
-    month: getMonthInfo(targetMonth),
-    dashboard: getBillingBreakdown(month)
-  };
+  return runWithPerfLog_('getMonthView', { month: targetMonth }, function(perf) {
+    var month = normalizeYearMonth_(targetMonth);
+    if (!month) throw new Error('対象月が不正です。');
+    ensureMonthRow_(month);
+    perf.mark('ensureMonthRow');
+    var result = {
+      month: getMonthInfo(targetMonth),
+      dashboard: getBillingBreakdown(month)
+    };
+    perf.mark('getMonthInfo + getBillingBreakdown');
+    return result;
+  });
 }
 
 function getCoreMonthState(targetMonth) {

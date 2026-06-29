@@ -38,6 +38,7 @@ function saveCashMaster(payload) {
     };
 
     upsertRowByKey_(sheet, APP.HEADERS.CASH_MASTER, '照合用ID', row);
+    clearAllBillingRecordCache_();
     appendHistory_({
       targetMonth: '',
       type: existing ? APP.HISTORY_TYPES.CASH_UPDATE : APP.HISTORY_TYPES.CASH_ADD,
@@ -45,6 +46,45 @@ function saveCashMaster(payload) {
       targetName: name,
       before: existing || null,
       after: row,
+      memo: ''
+    });
+    return { success: true };
+  });
+}
+
+function registerCashMaster(matchId, name) {
+  return saveCashMaster({
+    matchId: matchId,
+    name: name || '',
+    usuallyCash: true,
+    startMonth: '',
+    endMonth: '',
+    memo: ''
+  });
+}
+
+function unregisterCashMaster(matchId) {
+  validateConfig_();
+  return withScriptLock_(function() {
+    var ss = getBillingSpreadsheet_();
+    var sheet = getRequiredSheet_(ss, APP.SHEETS.CASH_MASTER);
+    var matchIdNorm = normalizeIdForMatch_(matchId);
+    if (!matchIdNorm) throw new Error('照合用IDが不正です。');
+    var existing = readSheetObjects_(sheet).find(function(row) {
+      return normalizeIdForMatch_(row['照合用ID']) === matchIdNorm;
+    });
+    if (!existing) return { success: true };
+    replaceRowsByFilter_(sheet, APP.HEADERS.CASH_MASTER, function(row) {
+      return normalizeIdForMatch_(row['照合用ID']) === matchIdNorm;
+    }, []);
+    clearAllBillingRecordCache_();
+    appendHistory_({
+      targetMonth: '',
+      type: APP.HISTORY_TYPES.CASH_DELETE,
+      targetId: matchIdNorm,
+      targetName: existing['氏名'],
+      before: existing,
+      after: null,
       memo: ''
     });
     return { success: true };

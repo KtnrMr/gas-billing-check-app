@@ -7,6 +7,7 @@
     "clasp:login": "clasp login",
     "clasp:pull": "clasp pull",
     "clasp:push": "clasp push",
+    "clasp:deploy": "clasp push && clasp deploy -i AKfycby_x1pphk6JWEgJ6hiD5pfKJgMJ-EeTHtnf1DqiPT7z9oVEchexmOJFlAmJlsagDFKK -d \"v0.4.5\"",
     "clasp:open": "clasp open-script"
   },
   "devDependencies": {

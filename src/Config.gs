@@ -1,3 +1,6 @@
+var BILLING_SPREADSHEET_CACHE_ = null;
+var MASTER_SPREADSHEET_CACHE_ = null;
+
 function getScriptProperty_(key) {
   return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
 }
@@ -21,12 +24,18 @@ function validateConfig_() {
 
 function getBillingSpreadsheet_() {
   validateConfig_();
-  return SpreadsheetApp.openById(getConfig_().BILLING_SS_ID);
+  if (!BILLING_SPREADSHEET_CACHE_) {
+    BILLING_SPREADSHEET_CACHE_ = SpreadsheetApp.openById(getConfig_().BILLING_SS_ID);
+  }
+  return BILLING_SPREADSHEET_CACHE_;
 }
 
 function getMasterSpreadsheet_() {
   validateConfig_();
-  return SpreadsheetApp.openById(getConfig_().MASTER_SS_ID);
+  if (!MASTER_SPREADSHEET_CACHE_) {
+    MASTER_SPREADSHEET_CACHE_ = SpreadsheetApp.openById(getConfig_().MASTER_SS_ID);
+  }
+  return MASTER_SPREADSHEET_CACHE_;
 }
 
 function readSettingsMap_() {
@@ -59,5 +68,23 @@ function getMasterSpreadsheetFromSettings_() {
   if (!masterId) {
     throw new Error('MASTER_SPREADSHEET_ID が設定されていません。');
   }
-  return SpreadsheetApp.openById(masterId);
+  if (!MASTER_SPREADSHEET_CACHE_) {
+    MASTER_SPREADSHEET_CACHE_ = SpreadsheetApp.openById(masterId);
+  }
+  return MASTER_SPREADSHEET_CACHE_;
+}
+
+function saveAppSetting_(key, value) {
+  var normalizedKey = normalizeString_(key);
+  if (!normalizedKey) return;
+  var ss = getBillingSpreadsheet_();
+  var sheet = ensureSheet_(ss, APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS);
+  var existing = readSheetObjects_(sheet).find(function(row) {
+    return normalizeString_(row['設定キー']) === normalizedKey;
+  });
+  upsertRowByKey_(sheet, APP.HEADERS.SETTINGS, '設定キー', {
+    '設定キー': normalizedKey,
+    '設定値': value == null ? '' : String(value),
+    '説明': existing ? existing['説明'] : (getSettingsDescription_(normalizedKey) || '')
+  });
 }

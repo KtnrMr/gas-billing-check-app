@@ -10,6 +10,9 @@ function setupApplicationSheets() {
     ensureSheet_(ss, APP.SHEETS.RECONCILE, APP.HEADERS.RECONCILE);
     ensureSheet_(ss, APP.SHEETS.HISTORY, APP.HEADERS.HISTORY);
     ensureSheet_(ss, APP.SHEETS.NAME_CONFIRMED, APP.HEADERS.NAME_CONFIRMED);
+    ensureSheet_(ss, APP.SHEETS.MASTER_CACHE, APP.HEADERS.MASTER_CACHE);
+    ensureSheet_(ss, APP.SHEETS.BILLING_CACHE, APP.HEADERS.BILLING_CACHE);
+    ensureSheet_(ss, APP.SHEETS.BILLING_MEMO, APP.HEADERS.BILLING_MEMO);
     var settingsSheet = ensureSheet_(ss, APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS);
     seedDefaultSettings_(settingsSheet);
     return {
@@ -41,7 +44,8 @@ function getSettingsDescription_(key) {
     MASTER_SPREADSHEET_ID: '既存マスタのスプレッドシートID',
     BASIC_INFO_SHEET_NAME: '基本情報マスタのシート名',
     ENDED_USER_SHEET_NAME: '利用終了者マスタのシート名',
-    MASTER_ID_COLUMN: 'マスタのID列名'
+    MASTER_ID_COLUMN: 'マスタのID列名',
+    MASTER_CACHE_SYNCED_AT: '利用者マスタキャッシュの最終同期日時'
   };
   return descriptions[key] || '';
 }

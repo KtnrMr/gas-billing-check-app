@@ -1,5 +1,6 @@
 <script>
 (function() {
+  var UI_BUILD = '0.4.8';
   var state = {
     targetMonth: '',
     month: null,
@@ -13,7 +14,22 @@
     currentListTab: '入力対象',
     editable: true,
     loadedScreens: {},
-    listTabCache: {}
+    honobonoBilling: null,
+    honobonoDraft: {
+      rows: [],
+      pastOnlyRows: [],
+      removedPastOnly: [],
+      serverPastOnlyIds: [],
+      dirtyMatchIds: {},
+      dirtyPastOnlyIds: {},
+      dirtyMemoIds: {},
+      dirty: false
+    },
+    billingSearchTimer: null,
+    billingSearchKeyword: '',
+    cashSearchTimer: null,
+    cashSearchKeyword: '',
+    eshuInputRows: []
   };
 
   var pendingRequests = 0;
@@ -79,9 +95,22 @@
   }
 
   function getActiveReconcileWrapId() {
-    var eshuScreen = $('screen-eshu-import');
-    if (eshuScreen && !eshuScreen.hidden) return 'reconcile-table-wrap';
-    return 'dashboard-table-wrap';
+    return 'reconcile-table-wrap';
+  }
+
+  function formatBillingAmount(record) {
+    if (record.isMonthlyStop) return '当月停止';
+    return formatYen(record.finalAmount);
+  }
+
+  function formatReconcileAmount(value) {
+    if (normalizeDisplayText_(value) === '当月停止') return '当月停止';
+    if (value === '' || value == null) return '';
+    return formatYen(value);
+  }
+
+  function normalizeDisplayText_(value) {
+    return String(value == null ? '' : value).replace(/\s+/g, '').trim();
   }
 
   function handleImportError(error) {
@@ -90,10 +119,13 @@
 
   function applyImportResult(result, label) {
     if (!result) return false;
-    if (result.reconcile && result.reconcile.rows && result.reconcile.rows.length) {
+    if (result.month) {
+      state.month = result.month;
+      renderFromState();
+    }
+    if (result.reconcile && Array.isArray(result.reconcile.rows)) {
       state.reconcile = result.reconcile.rows;
-      renderReconcileTable(state.reconcile, 'reconcile-table-wrap');
-      renderReconcileTable(state.reconcile, 'dashboard-table-wrap');
+      renderReconcileTable(state.reconcile);
     }
     var importCount = result.count;
     var reconcileCount = result.reconcile ? result.reconcile.count : 0;
@@ -147,10 +179,9 @@
   function updateEditableUi() {
     var editable = isEditable();
     $('honobono-import-button').disabled = !editable;
+    $('honobono-save-button').disabled = !editable || !state.honobonoDraft.dirty;
     $('eshu-import-button').disabled = !editable;
     $('reconcile-button').disabled = !editable;
-    $('adj-save-button').disabled = !editable;
-    $('cash-save-button').disabled = !editable;
     $('confirm-button').disabled = !editable || !state.month || state.month.status === '確定済';
     $('unconfirm-button').disabled = !state.month || state.month.status !== '確定済';
     $('month-status').textContent = state.month
@@ -159,7 +190,12 @@
   }
 
   function renderSummary() {
-    var wrap = $('summary-cards');
+    renderSummaryCards('honobono-summary-cards');
+  }
+
+  function renderSummaryCards(wrapId) {
+    var wrap = $(wrapId);
+    if (!wrap) return;
     if (!state.dashboard) {
       wrap.innerHTML = '';
       return;
@@ -170,14 +206,12 @@
       return;
     }
     var cards = [
-      ['ほのぼの取込', s.honobonoCount + '件', formatYen(s.honobonoTotal)],
-      ['通常請求', s.normalCount + '件', formatYen(s.normalTotal)],
-      ['追加請求あり', s.additionalCount + '件', formatYen(s.additionalTotal)],
-      ['過去分のみ', s.pastOnlyCount + '件', formatYen(s.pastOnlyTotal)],
-      ['現金支払い', s.cashCount + '件', formatYen(s.cashTotal)],
-      ['請求保留', s.holdCount + '件', formatYen(s.holdTotal)],
-      ['e集ちゃん入力予定', s.inputCount + '件', formatYen(s.inputTotal)],
-      ['不一致', ((state.month && state.month.mismatchCount) || 0) + '件', '']
+      ['ほのぼの取込', (s.honobonoImportCount || s.honobonoCount || 0) + '件', formatYen(s.honobonoImportTotal || s.honobonoTotal || 0)],
+      ['請求件数', (s.billingCount != null ? s.billingCount : s.totalBillingCount || 0) + '件', formatYen(s.totalBillingAmount || 0)],
+      ['合算請求', (s.combinedCount || 0) + '件', formatYen(s.combinedAmount || 0)],
+      ['過去分のみ', (s.pastOnlyCount || 0) + '件', formatYen(s.pastOnlyAmount || 0)],
+      ['現金支払い', (s.cashCount || 0) + '件', formatYen(s.cashTotal || s.cashAmount || 0)],
+      ['当月停止', (s.monthlyStopCount || s.holdCount || 0) + '件', formatYen(s.monthlyStopAmount || s.holdTotal || 0)]
     ];
     wrap.innerHTML = cards.map(function(card) {
       return '<div class="summary-card"><div class="label">' + card[0] +
@@ -185,7 +219,7 @@
     }).join('');
   }
 
-  function renderTable(wrapId, columns, rows, rowClassFn) {
+  function renderTable(wrapId, columns, rows, rowClassFn, rowIdKey) {
     var wrap = $(wrapId);
     if (!rows.length) {
       wrap.innerHTML = '<div class="panel">データがありません。</div>';
@@ -198,7 +232,9 @@
     html.push('</tr></thead><tbody>');
     rows.forEach(function(row) {
       var cls = rowClassFn ? rowClassFn(row) : '';
-      html.push('<tr class="' + cls + '">');
+      var rowId = rowIdKey ? row[rowIdKey] : '';
+      var rowAttr = rowId ? ' data-match-id="' + rowId + '"' : '';
+      html.push('<tr class="' + cls + '"' + rowAttr + '>');
       columns.forEach(function(col) {
         var value = typeof col.render === 'function' ? col.render(row) : (row[col.key] || '');
         html.push('<td>' + value + '</td>');
@@ -209,139 +245,937 @@
     wrap.innerHTML = html.join('');
   }
 
-  function loadListTab(tabName, force) {
-    if (!state.targetMonth) return;
-    var cacheKey = state.targetMonth + ':' + tabName;
-    if (!force && state.listTabCache[cacheKey]) {
-      renderListTab(tabName, state.listTabCache[cacheKey]);
+  function escapeHtml_(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toHiraganaForSearchClient_(value) {
+    return normalizeDisplayText_(value).replace(/[ァ-ヶ]/g, function(ch) {
+      return String.fromCharCode(ch.charCodeAt(0) - 0x60);
+    }).toLowerCase();
+  }
+
+  function normalizeIdForMatchClient_(value) {
+    return normalizeDisplayText_(value)
+      .replace(/[０-９]/g, function(ch) {
+        return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+      })
+      .replace(/^0+/, '');
+  }
+
+  function matchBillingRowLocal_(row, query) {
+    var q = normalizeDisplayText_(query);
+    if (!q) return false;
+    var searchKey = toHiraganaForSearchClient_(q);
+    var qId = normalizeIdForMatchClient_(q);
+    if (qId && (String(row.matchId || '').indexOf(qId) >= 0
+      || String(row.rawId || '').indexOf(q) >= 0)) return true;
+    var kanaKey = toHiraganaForSearchClient_(row.kana || '');
+    var nameKey = toHiraganaForSearchClient_(row.name || '');
+    if (searchKey && (kanaKey.indexOf(searchKey) >= 0 || nameKey.indexOf(searchKey) >= 0)) return true;
+    if (row.name && row.name.indexOf(q) >= 0) return true;
+    return false;
+  }
+
+  function formatAmountInputDisplay_(amount) {
+    if (amount === '' || amount == null) return '';
+    var num = Number(amount);
+    if (!isFinite(num) || num === 0) return '';
+    return String(num);
+  }
+
+  function parseAmountInput_(value) {
+    var text = String(value == null ? '' : value).replace(/,/g, '').trim();
+    if (!text) return 0;
+    var num = Number(text);
+    return isFinite(num) ? Math.max(0, Math.round(num)) : 0;
+  }
+
+  function compareByKanaNameClient_(a, b) {
+    var keyA = a.kana || a.name || '';
+    var keyB = b.kana || b.name || '';
+    return keyA.localeCompare(keyB, 'ja');
+  }
+
+  function hideSearchCandidates(areaId) {
+    var area = $(areaId);
+    if (!area) return;
+    area.hidden = true;
+    area.innerHTML = '';
+  }
+
+  function renderSearchCandidateCards(areaId, users, onSelect, emptyMessage) {
+    var area = $(areaId);
+    if (!area) return;
+    area.hidden = false;
+    if (!users.length) {
+      area.innerHTML = '<div class="candidate-empty">' + escapeHtml_(emptyMessage || '該当する利用者はいません。') + '</div>';
       return;
     }
-    if (tabName === '照合結果') {
-      runServerSilent('getReconcileResults', state.targetMonth).then(function(rows) {
-        state.reconcile = rows || [];
-        state.listTabCache[cacheKey] = rows || [];
-        renderListTab(tabName, rows || []);
-      }).catch(function() {
-        renderListTab(tabName, []);
+    area.innerHTML = users.map(function(user) {
+      return '<button type="button" class="candidate-card candidate-card-clickable" data-match-id="' + escapeHtml_(user.matchId) + '">' +
+        '<div class="candidate-card-body">' +
+        '<div class="candidate-name">' + escapeHtml_(user.name || '') + '</div>' +
+        '<div class="candidate-meta">' + escapeHtml_(user.kana || '') + ' / ID:' + escapeHtml_(user.rawId || user.matchId || '') + '</div>' +
+        '</div></button>';
+    }).join('');
+    area.querySelectorAll('.candidate-card').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-match-id');
+        var user = users.find(function(item) { return item.matchId === matchId; });
+        if (user) onSelect(user);
       });
-      return;
-    }
-    runServerSilent('getListTabData', state.targetMonth, tabName).then(function(rows) {
-      state.listTabCache[cacheKey] = rows || [];
-      renderListTab(tabName, rows || []);
-    }).catch(function() {
-      renderListTab(tabName, []);
     });
   }
 
-  function renderListTab(tabName, rows) {
-    if (tabName === '照合結果') {
-      renderReconcileTable(rows, getActiveReconcileWrapId());
+  function buildBillingSearchCandidates(localRows, masterUsers) {
+    var existing = getAllBillingMatchIds();
+    var seen = {};
+    var result = [];
+
+    (localRows || []).forEach(function(row) {
+      if (seen[row.matchId]) return;
+      seen[row.matchId] = true;
+      result.push({
+        matchId: row.matchId,
+        name: row.name,
+        kana: row.kana || '',
+        rawId: row.rawId || row.matchId,
+        inList: true,
+        isPastOnly: !!row.isPastOnly
+      });
+    });
+
+    (masterUsers || []).forEach(function(user) {
+      if (seen[user.matchId]) return;
+      seen[user.matchId] = true;
+      if (existing[user.matchId]) {
+        var found = findDraftRow_(user.matchId);
+        result.push({
+          matchId: user.matchId,
+          name: found ? found.row.name : user.name,
+          kana: (found && found.row.kana) || user.kana || '',
+          rawId: user.rawId || user.matchId,
+          inList: true,
+          isPastOnly: found ? found.isPastOnly : false
+        });
+      } else {
+        result.push({
+          matchId: user.matchId,
+          name: user.name,
+          kana: user.kana || '',
+          rawId: user.rawId || user.matchId,
+          inList: false,
+          user: user
+        });
+      }
+    });
+
+    return result.sort(function(a, b) {
+      return compareByKanaNameClient_(a, b);
+    });
+  }
+
+  function renderBillingSearchCandidates(candidates) {
+    var area = $('billing-name-search-candidates');
+    if (!area) return;
+    area.hidden = false;
+    if (!candidates.length) {
+      area.innerHTML = '<div class="candidate-empty">該当する利用者はいません。</div>';
       return;
     }
-    renderTable('dashboard-table-wrap', [
-        { key: 'matchId', label: 'ID' },
-        { key: 'name', label: '氏名' },
-        { key: 'billingStatus', label: '請求状態' },
-        { key: 'honobonoAmount', label: 'ほのぼの請求額', render: function(r) { return formatYen(r.honobonoAmount); } },
-        { key: 'additionalAmount', label: '追加額', render: function(r) { return formatYen(r.additionalAmount); } },
-        { key: 'finalAmount', label: '最終請求額', render: function(r) { return formatYen(r.finalAmount); } },
-        { key: 'warnings', label: '注意', render: function(r) {
-          var text = (r.warnings || []).join(', ');
-          if ((r.warnings || []).indexOf('氏名注意') >= 0) {
-            text += ' <button data-confirm-name="' + r.matchId + '">確認済みにする</button>';
-          }
-          return text;
-        } }
-      ], rows);
-      bindNameConfirmButtons('dashboard-table-wrap');
+    area.innerHTML = candidates.map(function(candidate) {
+      var actionHtml = candidate.inList
+        ? '<span class="candidate-badge">一覧へ</span>'
+        : '<button type="button" class="candidate-add-button" data-match-id="' + escapeHtml_(candidate.matchId) + '">追加</button>';
+      var cls = 'candidate-card candidate-card-billing' + (candidate.inList ? ' candidate-card-clickable' : '');
+      return '<div class="' + cls + '" data-match-id="' + escapeHtml_(candidate.matchId) + '" data-in-list="' + (candidate.inList ? '1' : '0') + '">' +
+        '<div class="candidate-card-body">' +
+        '<div class="candidate-name">' + escapeHtml_(candidate.name) + '</div>' +
+        '<div class="candidate-meta">' + escapeHtml_(candidate.kana) + ' / ID:' + escapeHtml_(candidate.rawId) + '</div>' +
+        '</div>' + actionHtml + '</div>';
+    }).join('');
+
+    area.querySelectorAll('.candidate-card-billing[data-in-list="1"]').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var matchId = card.getAttribute('data-match-id');
+        var candidate = candidates.find(function(item) { return item.matchId === matchId; });
+        hideSearchCandidates('billing-name-search-candidates');
+        var input = $('billing-name-search-input');
+        if (input && candidate) input.value = candidate.name || '';
+        scrollToBillingRow(matchId, candidate && candidate.isPastOnly);
+      });
+    });
+
+    area.querySelectorAll('.candidate-add-button').forEach(function(button) {
+      button.addEventListener('click', function(event) {
+        event.stopPropagation();
+        var matchId = button.getAttribute('data-match-id');
+        var candidate = candidates.find(function(item) { return item.matchId === matchId; });
+        if (candidate && candidate.user) addPastOnlyUserFromSearch(candidate.user);
+      });
+    });
+  }
+
+  function renderReconcileSummaryFromData(s) {
+    var wrap = $('reconcile-summary-table-wrap');
+    if (!wrap) return;
+    if (!s) {
+      wrap.innerHTML = '';
+      return;
+    }
+    var countJudge = s.countMatch
+      ? '<span class="reconcile-summary-ok">OK</span>'
+      : '<span class="reconcile-summary-ng">不一致</span>';
+    var amountJudge = s.amountMatch
+      ? '<span class="reconcile-summary-ok">OK</span>'
+      : '<span class="reconcile-summary-ng">不一致</span>';
+    wrap.innerHTML = [
+      '<table class="reconcile-summary-table"><thead><tr>',
+      '<th></th><th>請求整理</th><th>e集ちゃん</th><th>一致判定</th><th>差</th>',
+      '</tr></thead><tbody>',
+      '<tr><td class="label-cell">件数</td>',
+      '<td>' + s.billingCount + '件</td>',
+      '<td>' + s.eshuCount + '件</td>',
+      '<td>' + countJudge + '</td>',
+      '<td>' + (s.countMatch ? '0件' : (s.countDiff > 0 ? '+' : '') + s.countDiff + '件') + '</td>',
+      '</tr>',
+      '<tr><td class="label-cell">金額</td>',
+      '<td>' + formatYen(s.billingTotal) + '</td>',
+      '<td>' + formatYen(s.eshuTotal) + '</td>',
+      '<td>' + amountJudge + '</td>',
+      '<td>' + (s.amountMatch ? '0円' : formatYen(s.amountDiff)) + '</td>',
+      '</tr></tbody></table>'
+    ].join('');
+  }
+
+  function renderReconcileSummary() {
+    if (!state.targetMonth) return;
+    runServerSilent('getReconcileComparisonSummary', state.targetMonth).then(function(s) {
+      renderReconcileSummaryFromData(s);
+    }).catch(function() {
+      renderReconcileSummaryFromData(null);
+    });
+  }
+
+  function reconcileJudgmentRank_(judgment) {
+    if (judgment === '金額不一致') return 1;
+    if (judgment === '未入力') return 2;
+    if (judgment === '氏名注意') return 3;
+    if (judgment === 'OK') return 4;
+    return 5;
+  }
+
+  function sortReconcileRows_(rows, sortBy) {
+    var list = (rows || []).slice();
+    list.sort(function(a, b) {
+      if (sortBy === 'judgment') {
+        var rankDiff = reconcileJudgmentRank_(a['判定']) - reconcileJudgmentRank_(b['判定']);
+        if (rankDiff !== 0) return rankDiff;
+      }
+      if (sortBy === 'id') {
+        return compareMatchIdsClient_(a['照合用ID'], b['照合用ID']);
+      }
+      var nameA = a['フリガナ'] || a['ほのぼの氏名'] || a['e集ちゃん氏名'] || '';
+      var nameB = b['フリガナ'] || b['ほのぼの氏名'] || b['e集ちゃん氏名'] || '';
+      return nameA.localeCompare(nameB, 'ja');
+    });
+    return list;
+  }
+
+  function compareMatchIdsClient_(left, right) {
+    var aText = normalizeDisplayText_(left);
+    var bText = normalizeDisplayText_(right);
+    if (/^\d+$/.test(aText) && /^\d+$/.test(bText)) {
+      var aNum = Number(aText);
+      var bNum = Number(bText);
+      if (aNum !== bNum) return aNum - bNum;
+      return aText.length - bText.length;
+    }
+    return aText.localeCompare(bText);
+  }
+
+  function getReconcileSortBy() {
+    var select = $('reconcile-sort');
+    return select ? select.value : 'name';
+  }
+
+  function reconcileRowClass(row) {
+    var judgment = row['判定'];
+    if (judgment === 'OK') return '';
+    if (judgment === '氏名注意') return 'row-reconcile-warn';
+    if (judgment === '未入力') return 'row-reconcile-not-input';
+    return 'row-reconcile-mismatch';
   }
 
   function renderReconcileTable(rows, wrapId) {
     var targetWrap = wrapId || getActiveReconcileWrapId();
+    var sorted = sortReconcileRows_(rows, getReconcileSortBy());
     renderTable(targetWrap, [
       { key: '照合用ID', label: 'ID' },
-      { key: '基本情報氏名', label: '氏名' },
       { key: 'ほのぼの氏名', label: 'ほのぼの氏名' },
       { key: 'e集ちゃん氏名', label: 'e集ちゃん氏名' },
       { key: '請求状態', label: '請求状態' },
-      { key: '最終請求額', label: '最終請求額', render: function(r) { return formatYen(r['最終請求額']); } },
-      { key: 'e集ちゃん請求金額', label: 'e集ちゃん金額', render: function(r) { return formatYen(r['e集ちゃん請求金額']); } },
-      { key: '差額', label: '差額', render: function(r) { return formatYen(r['差額']); } },
+      { key: '最終請求額', label: '最終請求額', render: function(r) { return formatReconcileAmount(r['最終請求額']); } },
+      { key: 'e集ちゃん請求金額', label: 'e集ちゃん金額', render: function(r) { return formatReconcileAmount(r['e集ちゃん請求金額']); } },
+      { key: '差額', label: '差額', render: function(r) { return formatReconcileAmount(r['差額']); } },
       { key: '判定', label: '判定', render: function(r) {
         var cls = r['判定'] === 'OK' ? 'judgment-ok' : (r['判定'] === '氏名注意' ? 'judgment-warn' : 'judgment-error');
         return '<span class="' + cls + '">' + r['判定'] + '</span>';
       } },
       { key: 'actions', label: '操作', render: function(r) {
-        if (r['判定'] !== '氏名注意') return '';
-        return '<button data-confirm-name="' + r['照合用ID'] + '">氏名確認済みにする</button>';
+        if (r['判定'] !== '氏名注意' || !isEditable()) return '';
+        return '<button type="button" data-confirm-name="' + r['照合用ID'] + '">氏名確認済み</button>';
       } }
-    ], rows);
-    bindNameConfirmButtons(targetWrap);
+    ], sorted, reconcileRowClass, '照合用ID');
+    bindReconcileActions(targetWrap);
   }
 
-  function bindNameConfirmButtons(wrapId) {
-    var wrap = $(wrapId);
+  function bindReconcileActions(wrapId) {
+    var wrap = $(wrapId || getActiveReconcileWrapId());
     if (!wrap) return;
     wrap.querySelectorAll('[data-confirm-name]').forEach(function(button) {
       button.addEventListener('click', function() {
         var matchId = button.getAttribute('data-confirm-name');
-        var memo = window.prompt('確認メモ（任意）', '旧字・表記差異を確認済み');
-        runServer('confirmNameWarning', matchId, memo || '', state.targetMonth).then(function() {
-          invalidateMonthCache();
-          return reloadMonthSnapshot();
-        });
+        runServer('confirmNameWarning', matchId, '', state.targetMonth).then(function() {
+          return runServerSilent('getReconcileResults', state.targetMonth).then(function(rows) {
+            state.reconcile = rows || [];
+            renderReconcileTable(state.reconcile);
+            renderReconcileSummary();
+            return reloadMonthSnapshot();
+          });
+        }).catch(handleImportError);
       });
     });
   }
 
-  function renderHonobonoTable(force) {
+  function cloneHonobonoDraftData(data) {
+    return JSON.parse(JSON.stringify(data || []));
+  }
+
+  function resetHonobonoDraftFromServer(result) {
+    var pastOnlyRows = cloneHonobonoDraftData((result && result.pastOnlyRows) || []).map(function(row) {
+      return {
+        matchId: row.matchId,
+        rawId: row.rawId,
+        name: row.name,
+        kana: row.kana || '',
+        status: '過去分のみ',
+        isPastOnly: true,
+        pastOnlyAmount: row.finalAmount || 0,
+        honobonoAmount: 0,
+        finalAmount: row.finalAmount || 0,
+        memo: row.memo || ''
+      };
+    });
+    state.honobonoDraft = {
+      rows: cloneHonobonoDraftData((result && result.rows) || []),
+      pastOnlyRows: pastOnlyRows,
+      removedPastOnly: [],
+      serverPastOnlyIds: pastOnlyRows.map(function(row) { return row.matchId; }),
+      dirtyMatchIds: {},
+      dirtyPastOnlyIds: {},
+      dirtyMemoIds: {},
+      dirty: false
+    };
+    updateHonobonoDraftUi();
+  }
+
+  function updateHonobonoDraftUi() {
+    var dirty = state.honobonoDraft.dirty;
+    var saveBtn = $('honobono-save-button');
+    var statusEl = $('honobono-draft-status');
+    if (saveBtn) saveBtn.disabled = !dirty || !isEditable();
+    if (statusEl) {
+      statusEl.textContent = dirty ? '未保存の変更があります' : '保存済み';
+      statusEl.className = 'draft-status' + (dirty ? '' : ' saved');
+    }
+  }
+
+  function markHonobonoDraftDirty(matchId, isPastOnly) {
+    state.honobonoDraft.dirty = true;
+    if (isPastOnly) state.honobonoDraft.dirtyPastOnlyIds[matchId] = true;
+    else state.honobonoDraft.dirtyMatchIds[matchId] = true;
+    updateHonobonoDraftUi();
+  }
+
+  function markHonobonoDraftDirtyForMemo(matchId) {
+    state.honobonoDraft.dirty = true;
+    state.honobonoDraft.dirtyMemoIds = state.honobonoDraft.dirtyMemoIds || {};
+    state.honobonoDraft.dirtyMemoIds[matchId] = true;
+    updateHonobonoDraftUi();
+  }
+
+  function renderBillingMemoCell_(row, editable) {
+    var html = ['<td class="memo-cell">'];
+    if (editable && isEditable()) {
+      html.push('<input class="billing-memo-input" type="text" placeholder="メモ" data-memo-match-id="' + row.matchId + '" value="' + escapeHtml_(row.memo || '') + '">');
+    } else {
+      html.push('<span class="billing-memo-text">' + escapeHtml_(row.memo || '') + '</span>');
+    }
+    html.push('</td>');
+    return html.join('');
+  }
+
+  function getHonobonoSortBy() {
+    var select = $('honobono-sort');
+    return select ? select.value : 'name';
+  }
+
+  function sortHonobonoRowsClient_(rows, sortBy) {
+    var list = (rows || []).slice();
+    list.sort(function(a, b) {
+      if (sortBy === 'id') return compareMatchIdsClient_(a.rawId || a.matchId, b.rawId || b.matchId);
+      return compareByKanaNameClient_(a, b);
+    });
+    return list;
+  }
+
+  function getSortedHonobonoDisplayRows() {
+    return sortHonobonoRowsClient_(getHonobonoDisplayRows(), getHonobonoSortBy());
+  }
+
+  function scrollToBillingRow(matchId, focusAmount) {
+    var wrap = $('honobono-billing-table-wrap');
+    if (!wrap) return;
+    var row = wrap.querySelector('tr[data-match-id="' + matchId + '"]');
+    if (!row) return;
+    row.classList.add('row-search-highlight');
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.setTimeout(function() {
+      row.classList.remove('row-search-highlight');
+    }, 3000);
+    if (focusAmount) {
+      var input = row.querySelector('.past-only-amount');
+      if (input) input.focus();
+    }
+  }
+
+  function getAllBillingMatchIds() {
+    var ids = {};
+    (state.honobonoDraft.rows || []).forEach(function(row) {
+      ids[row.matchId] = true;
+    });
+    (state.honobonoDraft.pastOnlyRows || []).forEach(function(row) {
+      ids[row.matchId] = true;
+    });
+    return ids;
+  }
+
+  function computeDraftFinalAmount(row) {
+    if (row.isPastOnly || row.status === '過去分のみ') {
+      return Number(row.pastOnlyAmount) || 0;
+    }
+    var honobono = Number(row.honobonoAmount) || 0;
+    if (row.status === '現金支払い' || row.status === '当月停止') return 0;
+    if (row.status === '合算') {
+      var add = (row.additionalItems || []).reduce(function(sum, item) {
+        return sum + (Number(item.amount) || 0);
+      }, 0);
+      return honobono + add;
+    }
+    return honobono;
+  }
+
+  function honobonoRowClass(row) {
+    if (row.isPastOnly || row.status === '過去分のみ') return 'row-past-only';
+    if (row.status === '現金支払い') return 'row-billing-cash';
+    if (row.status === '当月停止') return 'row-billing-hold';
+    if (row.status === '合算') return 'row-billing-combined';
+    return '';
+  }
+
+  function getHonobonoDisplayRows() {
+    return (state.honobonoDraft.rows || []).concat(state.honobonoDraft.pastOnlyRows || []);
+  }
+
+  function renderHonobonoBillingTable(force) {
     if (!state.targetMonth) return;
+    if (!force && state.honobonoDraft.dirty) {
+      renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+      return;
+    }
     if (!force && state.loadedScreens.honobono === state.targetMonth) return;
-    runServerSilent('getHonobonoImports', state.targetMonth).then(function(result) {
+    runServerSilent('getHonobonoBillingList', state.targetMonth).then(function(result) {
       state.loadedScreens.honobono = state.targetMonth;
-      renderTable('honobono-table-wrap', [
-        { key: 'matchId', label: 'ID' },
-        { key: 'name', label: '利用者名' },
-        { key: 'masterName', label: '基本情報氏名' },
-        { key: 'masterCategory', label: 'マスタ区分' },
-        { key: 'amount', label: '請求額', render: function(r) { return formatYen(r.amount); } },
-        { key: 'judgment', label: '取込判定' }
-      ], (result && result.rows) || []);
+      state.honobonoBilling = result || null;
+      resetHonobonoDraftFromServer(result);
+      if (result && result.summary) {
+        state.dashboard = { summary: result.summary };
+        renderSummary();
+      }
+      renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
     }).catch(function() {});
   }
 
-  function renderAdjustmentTable() {
-    renderTable('adjustment-table-wrap', [
-      { key: 'matchId', label: 'ID' },
-      { key: 'name', label: '氏名' },
-      { key: 'type', label: '調整区分' },
-      { key: 'targetBillingMonth', label: '対象請求月' },
-      { key: 'amount', label: '調整金額', render: function(r) { return formatYen(r.amount); } },
-      { key: 'reason', label: '理由' },
-      { key: 'id', label: '操作', render: function(r) {
-        if (!isEditable()) return '';
-        return '<button data-delete-adj="' + r.id + '">削除</button>';
-      } }
-    ], state.adjustments);
-    document.querySelectorAll('[data-delete-adj]').forEach(function(button) {
-      button.addEventListener('click', function() {
-        runServer('deleteAdjustment', button.getAttribute('data-delete-adj')).then(function() {
-          return reloadMonth();
+  function renderHonobonoBillingRows(wrapId, rows, editable) {
+    var wrap = $(wrapId);
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="panel">データがありません。ほのぼのCSVを取込するか、過去分のみを追加してください。</div>';
+      return;
+    }
+    var statusOptions = ['通常', '合算', '当月停止', '現金支払い'];
+    var html = ['<table class="data-table"><thead><tr>',
+      '<th>顧客番号</th><th>氏名</th><th>ほのぼの請求額</th><th>請求区分</th><th>追加金額</th><th>最終請求額</th><th>メモ</th><th></th>',
+      '</tr></thead><tbody>'];
+    rows.forEach(function(row) {
+      var rowCls = honobonoRowClass(row);
+      html.push('<tr class="' + rowCls + '" data-match-id="' + row.matchId + '">');
+      html.push('<td>' + (row.rawId || row.matchId) + '</td>');
+      html.push('<td>' + row.name + '</td>');
+      if (row.isPastOnly) {
+        html.push('<td>—</td>');
+        html.push('<td>過去分のみ</td><td>');
+        if (editable && isEditable()) {
+          html.push('<input class="past-only-amount amount-text-input" type="text" inputmode="numeric" data-past-only-match-id="' + row.matchId + '" value="' + escapeHtml_(formatAmountInputDisplay_(row.pastOnlyAmount)) + '">');
+        } else {
+          html.push(formatYen(row.pastOnlyAmount || 0));
+        }
+        html.push('</td><td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
+        html.push(renderBillingMemoCell_(row, editable));
+        html.push('<td>');
+        if (editable && isEditable()) {
+          html.push('<button type="button" class="past-only-remove" data-past-only-match-id="' + row.matchId + '">削除</button>');
+        }
+        html.push('</td></tr>');
+        return;
+      }
+      html.push('<td>' + formatYen(row.honobonoAmount) + '</td>');
+      html.push('<td>');
+      if (editable && isEditable()) {
+        html.push('<select class="status-select" data-status-match-id="' + row.matchId + '">');
+        statusOptions.forEach(function(option) {
+          var selected = row.status === option ? ' selected' : '';
+          html.push('<option value="' + option + '"' + selected + '>' + option + '</option>');
+        });
+        html.push('</select>');
+      } else {
+        html.push(row.status);
+      }
+      html.push('</td><td>');
+      if (row.status === '合算') {
+        var items = (row.additionalItems && row.additionalItems.length)
+          ? row.additionalItems
+          : [{ id: '', amount: '' }];
+        if (editable && isEditable()) {
+          html.push('<div class="additional-list" data-additional-list="' + row.matchId + '">');
+          items.forEach(function(item) {
+            html.push('<span class="additional-row">');
+            html.push('<input class="additional-input amount-text-input" type="text" inputmode="numeric" data-additional-match-id="' + row.matchId + '" value="' + escapeHtml_(formatAmountInputDisplay_(item.amount)) + '">');
+            html.push('<button type="button" class="additional-remove" data-additional-match-id="' + row.matchId + '">×</button>');
+            html.push('</span>');
+          });
+          html.push('<button type="button" class="additional-add" data-additional-match-id="' + row.matchId + '">+</button>');
+          html.push('</div>');
+        } else {
+          html.push(items.map(function(item) { return formatYen(item.amount); }).join(' + '));
+        }
+      }
+      html.push('</td><td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
+      html.push(renderBillingMemoCell_(row, editable));
+      html.push('<td></td></tr>');
+    });
+    html.push('</tbody></table>');
+    wrap.innerHTML = html.join('');
+    if (editable && isEditable()) bindHonobonoBillingEditors(wrapId);
+  }
+
+  function findDraftRow_(matchId) {
+    var row = (state.honobonoDraft.rows || []).find(function(item) {
+      return item.matchId === matchId;
+    });
+    if (row) return { row: row, isPastOnly: false };
+    row = (state.honobonoDraft.pastOnlyRows || []).find(function(item) {
+      return item.matchId === matchId;
+    });
+    if (row) return { row: row, isPastOnly: true };
+    return null;
+  }
+
+  function applyDraftRowUpdate_(matchId, updater) {
+    var isPastOnly = false;
+    var updated = false;
+    state.honobonoDraft.rows = (state.honobonoDraft.rows || []).map(function(row) {
+      if (row.matchId !== matchId) return row;
+      updated = true;
+      return updater(row);
+    });
+    if (!updated) {
+      state.honobonoDraft.pastOnlyRows = (state.honobonoDraft.pastOnlyRows || []).map(function(row) {
+        if (row.matchId !== matchId) return row;
+        isPastOnly = true;
+        return updater(row);
+      });
+    }
+    markHonobonoDraftDirty(matchId, isPastOnly);
+    return findDraftRow_(matchId);
+  }
+
+  function refreshDraftRowFinalAmount_(matchId) {
+    var found = findDraftRow_(matchId);
+    if (!found) return;
+    var wrap = $('honobono-billing-table-wrap');
+    if (!wrap) return;
+    var rowEl = wrap.querySelector('tr[data-match-id="' + matchId + '"]');
+    if (!rowEl) return;
+    var cell = rowEl.querySelector('[data-final-amount-cell]');
+    if (cell) cell.textContent = formatYen(computeDraftFinalAmount(found.row));
+  }
+
+  function updateDraftRowSilent(matchId, updater) {
+    applyDraftRowUpdate_(matchId, updater);
+    refreshDraftRowFinalAmount_(matchId);
+  }
+
+  function updateDraftRow(matchId, updater) {
+    applyDraftRowUpdate_(matchId, updater);
+    renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+  }
+
+  function collectAdditionalAmounts(matchId) {
+    var list = document.querySelector('[data-additional-list="' + matchId + '"]');
+    if (!list) return [];
+    return Array.prototype.map.call(list.querySelectorAll('.additional-input'), function(input) {
+      return input.value;
+    });
+  }
+
+  function bindHonobonoBillingEditors(wrapId) {
+    var wrap = $(wrapId);
+    if (!wrap) return;
+    wrap.querySelectorAll('.status-select').forEach(function(select) {
+      select.addEventListener('change', function() {
+        var matchId = select.getAttribute('data-status-match-id');
+        var status = select.value;
+        updateDraftRow(matchId, function(row) {
+          var next = Object.assign({}, row, { status: status });
+          if (status === '合算' && (!next.additionalItems || !next.additionalItems.length)) {
+            next.additionalItems = [{ id: '', amount: '' }];
+          }
+          if (status !== '合算') next.additionalItems = [];
+          return next;
         });
       });
     });
+    wrap.querySelectorAll('.additional-input').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var matchId = input.getAttribute('data-additional-match-id');
+        var amounts = collectAdditionalAmounts(matchId);
+        updateDraftRowSilent(matchId, function(row) {
+          var items = amounts.map(function(amount) {
+            return { id: '', amount: parseAmountInput_(amount) };
+          });
+          return Object.assign({}, row, { status: '合算', additionalItems: items });
+        });
+      });
+    });
+    wrap.querySelectorAll('.additional-add').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-additional-match-id');
+        var list = wrap.querySelector('[data-additional-list="' + matchId + '"]');
+        if (!list) return;
+        var rowHtml = '<span class="additional-row">' +
+          '<input class="additional-input amount-text-input" type="text" inputmode="numeric" data-additional-match-id="' + matchId + '" value="">' +
+          '<button type="button" class="additional-remove" data-additional-match-id="' + matchId + '">×</button>' +
+          '</span>';
+        var temp = document.createElement('div');
+        temp.innerHTML = rowHtml;
+        var newRow = temp.firstChild;
+        list.insertBefore(newRow, button);
+        var newInput = newRow.querySelector('.additional-input');
+        var removeBtn = newRow.querySelector('.additional-remove');
+        newInput.addEventListener('input', function() {
+          var amounts = collectAdditionalAmounts(matchId);
+          updateDraftRowSilent(matchId, function(row) {
+            var items = amounts.map(function(amount) {
+              return { id: '', amount: parseAmountInput_(amount) };
+            });
+            return Object.assign({}, row, { status: '合算', additionalItems: items });
+          });
+        });
+        removeBtn.addEventListener('click', function() {
+          if (newRow.parentNode) newRow.parentNode.removeChild(newRow);
+          var amounts = collectAdditionalAmounts(matchId);
+          updateDraftRowSilent(matchId, function(row) {
+            var items = amounts.map(function(amount) {
+              return { id: '', amount: parseAmountInput_(amount) };
+            });
+            return Object.assign({}, row, { status: '合算', additionalItems: items });
+          });
+        });
+        newInput.focus();
+        updateDraftRowSilent(matchId, function(row) {
+          var items = (row.additionalItems || []).slice();
+          items.push({ id: '', amount: '' });
+          return Object.assign({}, row, { status: '合算', additionalItems: items });
+        });
+      });
+    });
+    wrap.querySelectorAll('.additional-remove').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-additional-match-id');
+        var rowEl = button.closest('.additional-row');
+        if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
+        var amounts = collectAdditionalAmounts(matchId);
+        updateDraftRowSilent(matchId, function(row) {
+          var items = amounts.map(function(amount) {
+            return { id: '', amount: parseAmountInput_(amount) };
+          });
+          return Object.assign({}, row, { status: '合算', additionalItems: items });
+        });
+      });
+    });
+    wrap.querySelectorAll('.past-only-amount').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var matchId = input.getAttribute('data-past-only-match-id');
+        var amount = parseAmountInput_(input.value);
+        updateDraftRowSilent(matchId, function(row) {
+          return Object.assign({}, row, { pastOnlyAmount: amount, finalAmount: amount });
+        });
+      });
+    });
+    wrap.querySelectorAll('.past-only-remove').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-past-only-match-id');
+        if (state.honobonoDraft.serverPastOnlyIds.indexOf(matchId) >= 0) {
+          state.honobonoDraft.removedPastOnly.push(matchId);
+        }
+        state.honobonoDraft.pastOnlyRows = (state.honobonoDraft.pastOnlyRows || []).filter(function(row) {
+          return row.matchId !== matchId;
+        });
+        markHonobonoDraftDirty(matchId, true);
+        renderHonobonoBillingRows(wrapId, getSortedHonobonoDisplayRows(), true);
+      });
+    });
+    wrap.querySelectorAll('.billing-memo-input').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var matchId = input.getAttribute('data-memo-match-id');
+        var memo = input.value;
+        var updated = false;
+        state.honobonoDraft.rows = (state.honobonoDraft.rows || []).map(function(row) {
+          if (row.matchId !== matchId) return row;
+          updated = true;
+          return Object.assign({}, row, { memo: memo });
+        });
+        if (!updated) {
+          state.honobonoDraft.pastOnlyRows = (state.honobonoDraft.pastOnlyRows || []).map(function(row) {
+            if (row.matchId !== matchId) return row;
+            return Object.assign({}, row, { memo: memo });
+          });
+        }
+        markHonobonoDraftDirtyForMemo(matchId);
+      });
+    });
+  }
+
+  function saveHonobonoBillingDraft() {
+    if (!state.honobonoDraft.dirty) return Promise.resolve();
+    var dirtyMatchIds = state.honobonoDraft.dirtyMatchIds || {};
+    var dirtyPastOnlyIds = state.honobonoDraft.dirtyPastOnlyIds || {};
+    var dirtyMemoIds = state.honobonoDraft.dirtyMemoIds || {};
+    var payload = {
+      changedRows: (state.honobonoDraft.rows || []).filter(function(row) {
+        return dirtyMatchIds[row.matchId];
+      }).map(function(row) {
+        return {
+          matchId: row.matchId,
+          status: row.status,
+          additionalAmounts: row.status === '合算'
+            ? (row.additionalItems || []).map(function(item) { return item.amount; })
+            : []
+        };
+      }),
+      pastOnlyRows: (state.honobonoDraft.pastOnlyRows || []).filter(function(row) {
+        return dirtyPastOnlyIds[row.matchId];
+      }).map(function(row) {
+        return {
+          matchId: row.matchId,
+          name: row.name,
+          amount: row.pastOnlyAmount || 0
+        };
+      }),
+      removedPastOnly: state.honobonoDraft.removedPastOnly || [],
+      memoRows: getHonobonoDisplayRows().filter(function(row) {
+        return dirtyMemoIds[row.matchId];
+      }).map(function(row) {
+        return {
+          matchId: row.matchId,
+          name: row.name,
+          memo: row.memo || ''
+        };
+      })
+    };
+    return runServer('saveHonobonoBillingBatch', state.targetMonth, payload).then(function(result) {
+      if (result && result.month) {
+        state.month = result.month;
+        renderFromState();
+      }
+      if (result && result.honobonoBilling) {
+        state.loadedScreens.honobono = state.targetMonth;
+        state.honobonoBilling = result.honobonoBilling;
+        resetHonobonoDraftFromServer(result.honobonoBilling);
+        state.honobonoDraft.dirty = false;
+        state.honobonoDraft.dirtyMatchIds = {};
+        state.honobonoDraft.dirtyPastOnlyIds = {};
+        state.honobonoDraft.dirtyMemoIds = {};
+        state.honobonoDraft.removedPastOnly = [];
+        if (result.honobonoBilling.summary) {
+          state.dashboard = Object.assign({}, state.dashboard || {}, { summary: result.honobonoBilling.summary });
+          renderSummary();
+        }
+        renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+        return;
+      }
+      state.loadedScreens.honobono = '';
+      state.honobonoDraft.dirty = false;
+      state.honobonoDraft.dirtyMatchIds = {};
+      state.honobonoDraft.dirtyPastOnlyIds = {};
+      state.honobonoDraft.dirtyMemoIds = {};
+      renderHonobonoBillingTable(true);
+    }).then(function() {
+      showMessage('請求整理を保存しました。', 'success');
+    }).catch(handleImportError);
+  }
+
+  function addPastOnlyUserFromSearch(user) {
+    state.honobonoDraft.pastOnlyRows.push({
+      matchId: user.matchId,
+      rawId: user.rawId,
+      name: user.name,
+      kana: user.kana || '',
+      status: '過去分のみ',
+      isPastOnly: true,
+      pastOnlyAmount: 0,
+      honobonoAmount: 0,
+      finalAmount: 0
+    });
+    markHonobonoDraftDirty(user.matchId, true);
+    renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+    hideSearchCandidates('billing-name-search-candidates');
+    var input = $('billing-name-search-input');
+    if (input) input.value = user.name || '';
+    scrollToBillingRow(user.matchId, true);
+  }
+
+  function handleBillingNameSearchInput(value) {
+    var keyword = String(value || '').trim();
+    state.billingSearchKeyword = keyword;
+
+    if (state.billingSearchTimer) {
+      clearTimeout(state.billingSearchTimer);
+      state.billingSearchTimer = null;
+    }
+
+    if (!keyword) {
+      hideSearchCandidates('billing-name-search-candidates');
+      return;
+    }
+
+    state.billingSearchTimer = setTimeout(function() {
+      var localRows = getSortedHonobonoDisplayRows().filter(function(row) {
+        return matchBillingRowLocal_(row, keyword);
+      });
+      var area = $('billing-name-search-candidates');
+      if (area) {
+        area.hidden = false;
+        area.innerHTML = '<div class="candidate-loading">検索中…</div>';
+      }
+
+      runServerSilent('searchMasterUsers', keyword, $('billing-include-ended').checked).then(function(users) {
+        if (normalizeDisplayText_(state.billingSearchKeyword) !== normalizeDisplayText_(keyword)) return;
+        renderBillingSearchCandidates(buildBillingSearchCandidates(localRows, users || []));
+      }).catch(function(error) {
+        if (localRows.length) {
+          renderBillingSearchCandidates(buildBillingSearchCandidates(localRows, []));
+          return;
+        }
+        if (area) {
+          area.innerHTML = '<div class="candidate-empty">' + escapeHtml_(error.message || '検索に失敗しました。') + '</div>';
+        }
+      });
+    }, 250);
+  }
+
+  function fetchCashSearchCandidates(keyword) {
+    var area = $('cash-search-candidates');
+    if (!area) return;
+    area.hidden = false;
+    area.innerHTML = '<div class="candidate-loading">検索中…</div>';
+
+    runServerSilent('searchActiveMasterUsers', keyword).then(function(users) {
+      if (normalizeDisplayText_(state.cashSearchKeyword) !== normalizeDisplayText_(keyword)) return;
+      var registered = {};
+      (state.cashMaster || []).forEach(function(row) {
+        registered[normalizeIdForMatchClient_(row['照合用ID'])] = true;
+      });
+      var filtered = (users || []).filter(function(user) {
+        return !registered[user.matchId];
+      });
+      renderSearchCandidateCards('cash-search-candidates', filtered, function(user) {
+        runServer('registerCashMaster', user.matchId, user.name).then(function() {
+          return loadSecondaryMonthData();
+        }).then(function() {
+          hideSearchCandidates('cash-search-candidates');
+          var input = $('cash-search-input');
+          if (input) input.value = user.name || '';
+          showMessage(user.name + ' を現金支払いマスタに登録しました。', 'success');
+        }).catch(handleImportError);
+      });
+    }).catch(function(error) {
+      if (area) {
+        area.hidden = false;
+        area.innerHTML = '<div class="candidate-empty">' + escapeHtml_(error.message || '検索に失敗しました。') + '</div>';
+      }
+    });
+  }
+
+  function handleCashSearchInput(value) {
+    var keyword = String(value || '').trim();
+    state.cashSearchKeyword = keyword;
+
+    if (state.cashSearchTimer) {
+      clearTimeout(state.cashSearchTimer);
+      state.cashSearchTimer = null;
+    }
+
+    if (!keyword) {
+      hideSearchCandidates('cash-search-candidates');
+      return;
+    }
+
+    state.cashSearchTimer = setTimeout(function() {
+      fetchCashSearchCandidates(keyword);
+    }, 250);
   }
 
   function renderCashMasterTable() {
     renderTable('cash-master-table-wrap', [
       { key: '照合用ID', label: 'ID' },
       { key: '氏名', label: '氏名' },
-      { key: '通常現金', label: '通常現金' },
-      { key: '適用開始月', label: '適用開始月' },
-      { key: '適用終了月', label: '適用終了月' },
-      { key: '理由・メモ', label: 'メモ' }
-    ], state.cashMaster);
+      { key: '理由・メモ', label: 'メモ' },
+      { key: 'actions', label: '操作', render: function(r) {
+        if (!isEditable()) return '';
+        return '<button type="button" data-unregister-cash="' + r['照合用ID'] + '">解除</button>';
+      } }
+    ], state.cashMaster.filter(function(row) {
+      return row['通常現金'];
+    }));
+    var wrap = $('cash-master-table-wrap');
+    if (!wrap) return;
+    wrap.querySelectorAll('[data-unregister-cash]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-unregister-cash');
+        runServer('unregisterCashMaster', matchId).then(function() {
+          return loadSecondaryMonthData();
+        }).then(function() {
+          showMessage('現金支払いマスタから解除しました。', 'success');
+        }).catch(handleImportError);
+      });
+    });
   }
 
   function renderEshuInputTable(force) {
@@ -350,59 +1184,97 @@
     var sortBy = $('eshu-sort').value;
     runServerSilent('getInputTargetList', state.targetMonth, sortBy).then(function(rows) {
       state.loadedScreens['eshu-input'] = state.targetMonth;
+      state.eshuInputRows = rows || [];
       state.inputTargets = rows;
-      var lastCopyId = state.month ? state.month.lastCopyId : '';
-      var completeMarkId = state.month ? state.month.completeMarkId : '';
-      renderTable('eshu-input-table-wrap', [
-        { key: 'mark', label: '目印', render: function(r) {
-          if (r.matchId === lastCopyId) return '最新コピー';
-          if (r.matchId === completeMarkId) return 'ここまで完了';
-          return '';
-        } },
-        { key: 'matchId', label: 'ID' },
-        { key: 'name', label: '氏名' },
-        { key: 'finalAmount', label: '最終請求額', render: function(r) { return formatYen(r.finalAmount); } },
-        { key: 'actions', label: '操作', render: function(r) {
-          return '<button data-copy-amount="' + r.matchId + '" data-copy-value="' + r.finalAmount + '" data-copy-name="' + r.name + '">金額コピー</button> ' +
-            '<button data-complete-mark="' + r.matchId + '">完了マーク</button>';
-        } }
-      ], rows, function(r) {
-        if (r.matchId === lastCopyId) return 'row-latest-copy';
-        if (r.matchId === completeMarkId) return 'row-complete-mark';
-        return '';
-      });
-
-      document.querySelectorAll('[data-copy-amount]').forEach(function(button) {
-        button.addEventListener('click', function() {
-          var amount = button.getAttribute('data-copy-value');
-          copyText(amount).then(function() {
-            return runServer('saveWorkState', state.targetMonth, {
-              lastCopy: {
-                matchId: button.getAttribute('data-copy-amount'),
-                amount: amount
-              }
-            });
-          }).then(function(month) {
-            state.month = month;
-            updateLastCopyInfo();
-            renderEshuInputTable(true);
-            showMessage('金額をコピーしました: ' + amount, 'success');
-          });
-        });
-      });
-
-      document.querySelectorAll('[data-complete-mark]').forEach(function(button) {
-        button.addEventListener('click', function() {
-          var matchId = button.getAttribute('data-complete-mark');
-          var current = state.month ? state.month.completeMarkId : '';
-          var nextId = current === matchId ? '' : matchId;
-          runServer('saveWorkState', state.targetMonth, { completeMarkId: nextId }).then(function(month) {
-            state.month = month;
-            renderEshuInputTable(true);
-          });
-        });
-      });
+      renderEshuInputTableBody();
+      bindEshuInputActions();
     }).catch(function() {});
+  }
+
+  function renderEshuInputTableBody() {
+    var rows = state.eshuInputRows || [];
+    var lastCopyId = state.month ? state.month.lastCopyId : '';
+    var completeMarkId = state.month ? state.month.completeMarkId : '';
+    renderTable('eshu-input-table-wrap', [
+      { key: 'mark', label: '目印', render: function(r) {
+        if (r.matchId === lastCopyId) return '最新コピー';
+        if (r.matchId === completeMarkId) return 'ここまで完了';
+        return '';
+      } },
+      { key: 'rawId', label: '顧客番号' },
+      { key: 'name', label: '氏名' },
+      { key: 'finalAmount', label: '請求金額', render: function(r) { return formatBillingAmount(r); } },
+      { key: 'actions', label: '操作', render: function(r) {
+        var html = '';
+        if (r.canCopyAmount) {
+          html += '<button data-copy-amount="' + r.matchId + '" data-copy-value="' + r.finalAmount + '">金額コピー</button> ';
+        }
+        html += '<button data-complete-mark="' + r.matchId + '">完了マーク</button>';
+        return html;
+      } }
+    ], rows, function(r) {
+      var cls = '';
+      if (r.matchId === lastCopyId) cls = 'row-latest-copy';
+      else if (r.matchId === completeMarkId) cls = 'row-complete-mark';
+      else if (r.isMonthlyStop) cls = 'row-monthly-stop';
+      return cls;
+    }, 'matchId');
+  }
+
+  function mergeWorkState(patch) {
+    if (!patch) return;
+    state.month = state.month || { targetMonth: state.targetMonth, status: '作業中' };
+    if (patch.completeMarkId !== undefined) state.month.completeMarkId = patch.completeMarkId;
+    if (patch.lastCopyId !== undefined) {
+      state.month.lastCopyId = patch.lastCopyId;
+      state.month.lastCopyAt = patch.lastCopyAt || '';
+      state.month.lastCopyAmount = patch.lastCopyAmount || '';
+    }
+  }
+
+  function refreshEshuInputMarkers() {
+    renderEshuInputTableBody();
+    bindEshuInputActions();
+  }
+
+  function bindEshuInputActions() {
+    document.querySelectorAll('[data-copy-amount]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-copy-amount');
+        var amount = button.getAttribute('data-copy-value');
+        mergeWorkState({
+          lastCopyId: matchId,
+          lastCopyAt: new Date().toISOString(),
+          lastCopyAmount: amount
+        });
+        updateLastCopyInfo();
+        refreshEshuInputMarkers();
+        copyText(amount);
+        runServerSilent('saveWorkState', state.targetMonth, {
+          lastCopy: { matchId: matchId, amount: amount }
+        }).then(function(patch) {
+          mergeWorkState(patch);
+          updateLastCopyInfo();
+        }).catch(handleImportError);
+        showMessage('金額をコピーしました: ' + amount, 'success');
+      });
+    });
+
+    document.querySelectorAll('[data-complete-mark]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-complete-mark');
+        var current = state.month ? state.month.completeMarkId : '';
+        var nextId = current === matchId ? '' : matchId;
+        mergeWorkState({ completeMarkId: nextId });
+        refreshEshuInputMarkers();
+        runServerSilent('saveWorkState', state.targetMonth, { completeMarkId: nextId })
+          .then(function(patch) {
+            mergeWorkState(patch);
+            refreshEshuInputMarkers();
+          })
+          .catch(handleImportError);
+      });
+    });
   }
 
   function updateLastCopyInfo() {
@@ -412,16 +1284,6 @@
         formatYen(state.month.lastCopyAmount) + ' / ' + (state.month.lastCopyAt || '');
     }
     $('last-copy-info').textContent = info;
-  }
-
-  function renderNameConfirmedTable() {
-    renderTable('name-confirmed-table-wrap', [
-      { key: 'matchId', label: 'ID' },
-      { key: 'name', label: '氏名' },
-      { key: 'confirmedAt', label: '確認日時' },
-      { key: 'confirmedBy', label: '確認者' },
-      { key: 'memo', label: 'メモ' }
-    ], state.nameConfirmed || []);
   }
 
   function renderHistoryTable() {
@@ -485,18 +1347,12 @@
     var month = state.targetMonth;
     if (!month) return Promise.resolve();
     return Promise.all([
-      runServerSilent('getAdjustments', month).catch(function() { return []; }),
       runServerSilent('getCashMasterList').catch(function() { return []; }),
-      runServerSilent('getHistory', month).catch(function() { return []; }),
-      runServerSilent('getNameConfirmedList').catch(function() { return []; })
+      runServerSilent('getHistory', month).catch(function() { return []; })
     ]).then(function(parts) {
-      state.adjustments = parts[0] || [];
-      state.cashMaster = parts[1] || [];
-      state.history = (parts[2] || []).slice(0, 100);
-      state.nameConfirmed = parts[3] || [];
-      renderAdjustmentTable();
+      state.cashMaster = parts[0] || [];
+      state.history = (parts[1] || []).slice(0, 100);
       renderCashMasterTable();
-      renderNameConfirmedTable();
       renderHistoryTable();
     });
   }
@@ -516,7 +1372,18 @@
 
   function invalidateMonthCache() {
     state.loadedScreens = {};
-    state.listTabCache = {};
+    state.eshuInputRows = [];
+    state.honobonoDraft = {
+      rows: [],
+      pastOnlyRows: [],
+      removedPastOnly: [],
+      serverPastOnlyIds: [],
+      dirtyMatchIds: {},
+      dirtyPastOnlyIds: {},
+      dirtyMemoIds: {},
+      dirty: false
+    };
+    updateHonobonoDraftUi();
   }
 
   function renderFromState() {
@@ -568,7 +1435,7 @@
         return false;
       }
       applyState(data);
-      loadListTab(state.currentListTab, true);
+      renderHonobonoBillingTable(true);
       return loadSecondaryMonthData().then(function() {
         showMessage('読み込みました。', 'success');
         return true;
@@ -586,32 +1453,19 @@
     document.querySelectorAll('.nav-item').forEach(function(button) {
       button.classList.toggle('active', button.getAttribute('data-screen') === name);
     });
-    if (name === 'dashboard') loadListTab(state.currentListTab);
-    if (name === 'honobono') renderHonobonoTable();
+    if (name === 'honobono') renderHonobonoBillingTable();
     if (name === 'eshu-input') renderEshuInputTable();
     if (name === 'eshu-import') {
-      loadListTab('照合結果', !state.listTabCache[state.targetMonth + ':照合結果']);
-      renderEshuImportTable();
+      renderReconcileSummary();
+      runServerSilent('getReconcileResults', state.targetMonth).then(function(rows) {
+        state.reconcile = rows || [];
+        renderReconcileTable(state.reconcile);
+      }).catch(function() {
+        renderReconcileTable([]);
+      });
     }
-    if (name === 'adjustment') renderAdjustmentTable();
     if (name === 'cash-master') renderCashMasterTable();
     if (name === 'confirm') renderHistoryTable();
-  }
-
-  function renderEshuImportTable(force) {
-    if (!state.targetMonth) return;
-    if (!force && state.loadedScreens['eshu-import'] === state.targetMonth) return;
-    runServerSilent('getEshuImports', state.targetMonth).then(function(result) {
-      state.loadedScreens['eshu-import'] = state.targetMonth;
-      renderTable('eshu-import-table-wrap', [
-        { key: '顧客番号', label: '顧客番号' },
-        { key: '照合用ID', label: '照合用ID' },
-        { key: '顧客名', label: '顧客名' },
-        { key: '請求金額', label: '請求金額', render: function(r) { return formatYen(r['請求金額']); } },
-        { key: '取込判定', label: '取込判定' },
-        { key: '備考', label: '備考' }
-      ], result.rows || []);
-    }).catch(function() {});
   }
 
   function initNav() {
@@ -620,20 +1474,137 @@
         showScreen(button.getAttribute('data-screen'));
       });
     });
-    document.querySelectorAll('.list-tab').forEach(function(button) {
-      button.addEventListener('click', function() {
-        document.querySelectorAll('.list-tab').forEach(function(tab) {
-          tab.classList.remove('active');
-        });
-        button.classList.add('active');
-        state.currentListTab = button.getAttribute('data-list-tab');
-        loadListTab(state.currentListTab);
-      });
+  }
+
+  function buildHonobonoPrintHtml_(data) {
+    var s = data.summary || {};
+    var title = data.printTitle || '請求';
+    function yen(v) { return formatYen(v); }
+    function tableBody(rowsHtml, colSpan) {
+      return rowsHtml || '<tr><td colspan="' + colSpan + '" class="empty-cell">該当なし</td></tr>';
+    }
+    function listRows(list, amountFn) {
+      return (list || []).map(function(row) {
+        return '<tr>' +
+          '<td class="id-col">' + escapeHtml_(row.rawId || row.matchId) + '</td>' +
+          '<td class="name-col">' + escapeHtml_(row.name) + '</td>' +
+          '<td class="amount-col"><span class="amount-text">' + escapeHtml_(amountFn(row)) + '</span></td>' +
+          '<td class="memo-col"><span class="memo-text">' + escapeHtml_(row.memo || '') + '</span></td>' +
+          '</tr>';
+      }).join('');
+    }
+    function listTable(headers, rowsHtml) {
+      return '<table><thead><tr>' + headers.map(function(h) {
+        return '<th>' + h + '</th>';
+      }).join('') + '</tr></thead><tbody>' + tableBody(rowsHtml, headers.length) + '</tbody></table>';
+    }
+    function printSection(sectionTitle, tableHtml) {
+      return '<div class="print-section"><h2>' + sectionTitle + '</h2>' + tableHtml + '</div>';
+    }
+    var billerRows = listRows(data.billers, function(row) { return row.amountDetail; });
+    var pastOnlyRows = listRows(data.pastOnlyList, function(row) { return row.amountDetail; });
+    var stopRows = listRows(data.monthlyStopList, function(row) { return yen(row.honobonoAmount || 0); });
+    var cashRows = listRows(data.cashList, function(row) { return yen(row.honobonoAmount || 0); });
+    var listHeaders = ['顧客番号', '氏名', '請求金額', 'メモ'];
+    var billingCount = (data.billers || []).length + (data.pastOnlyList || []).length;
+    if (!billingCount && s.billingCount) billingCount = s.billingCount;
+
+    return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>' + escapeHtml_(title) + '</title>' +
+      '<style>' +
+      'body{font-family:"Hiragino Sans","Yu Gothic UI",sans-serif;color:#111827;margin:24px;font-size:12px;}' +
+      'h1{font-size:20px;margin:0 0 16px;}' +
+      '.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;}' +
+      '.summary-box{border:1px solid #d1d5db;border-radius:6px;padding:10px;background:#f9fafb;}' +
+      '.summary-box .label{font-size:11px;color:#6b7280;}' +
+      '.summary-box .value{font-size:16px;font-weight:700;margin-top:4px;}' +
+      '.summary-box .sub{font-size:11px;color:#374151;margin-top:2px;}' +
+      '.print-section{margin-bottom:14px;}' +
+      '.print-section h2{font-size:14px;margin:0 0 8px;border-left:4px solid #2563eb;padding-left:8px;' +
+      'break-after:avoid-page;page-break-after:avoid;}' +
+      '.print-section table{break-before:avoid-page;page-break-before:avoid;}' +
+      'table{width:100%;border-collapse:collapse;table-layout:fixed;}' +
+      'th,td{border:1px solid #d1d5db;padding:6px 8px;text-align:left;vertical-align:top;}' +
+      'th{background:#eef2ff;font-size:11px;}' +
+      'thead{display:table-header-group;}' +
+      'tr{break-inside:avoid-page;page-break-inside:avoid;}' +
+      '.id-col{width:10%;}.name-col{width:22%;}.amount-col{width:28%;}.memo-col{width:40%;}' +
+      '.amount-text,.memo-text{display:block;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.45;}' +
+      '.empty-cell{text-align:center;color:#6b7280;}' +
+      '@media print{body{margin:12mm;} .no-print{display:none;} .print-section{break-inside:auto;page-break-inside:auto;}}' +
+      '</style></head><body>' +
+      '<h1>' + escapeHtml_(title) + '</h1>' +
+      '<div class="summary-grid print-section">' +
+      '<div class="summary-box"><div class="label">請求件数</div><div class="value">' + billingCount + '件</div>' +
+      '<div class="sub">合算 ' + (s.combinedCount || 0) + '件 / 過去分のみ ' + (s.pastOnlyCount || 0) + '件</div></div>' +
+      '<div class="summary-box"><div class="label">請求合計額</div><div class="value">' + yen(s.totalBillingAmount || 0) + '</div>' +
+      '<div class="sub">合算分 ' + yen(s.combinedAmount || 0) + ' / 過去分のみ ' + yen(s.pastOnlyAmount || 0) + '</div></div>' +
+      '<div class="summary-box"><div class="label">当月停止 / 現金支払い</div><div class="value">' +
+      (s.monthlyStopCount || 0) + '件 / ' + (s.cashCount || 0) + '件</div>' +
+      '<div class="sub">現金参考額 ' + yen(s.cashAmount || 0) + '</div></div>' +
+      '</div>' +
+      printSection('請求者一覧（' + (data.billers || []).length + '件）', listTable(listHeaders, billerRows)) +
+      printSection('過去分のみ請求一覧（' + (data.pastOnlyList || []).length + '件）', listTable(listHeaders, pastOnlyRows)) +
+      printSection('当月停止一覧（' + (data.monthlyStopList || []).length + '件）', listTable(listHeaders, stopRows)) +
+      printSection('現金支払い一覧（' + (data.cashList || []).length + '件）', listTable(listHeaders, cashRows)) +
+      '<p class="no-print" style="margin-top:20px;color:#6b7280;">ブラウザの印刷ダイアログから PDF 保存もできます。</p>' +
+      '</body></html>';
+  }
+
+  function openHonobonoPrintPreview() {
+    var month = requireTargetMonth();
+    if (!month) return;
+    if (state.honobonoDraft.dirty) {
+      if (!window.confirm('未保存の変更があります。保存済みの内容で印刷します。続けますか？')) return;
+    }
+
+    var win = window.open('about:blank', '_blank');
+    if (!win) {
+      showMessage('ポップアップがブロックされました。ブラウザの設定を確認してください。', 'error');
+      return;
+    }
+    win.document.open();
+    win.document.write('<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>読み込み中</title></head>' +
+      '<body style="font-family:sans-serif;padding:24px;color:#374151;">印刷データを読み込んでいます...</body></html>');
+    win.document.close();
+
+    runServerSilent('getHonobonoBillingPrintView', month).then(function(data) {
+      win.document.open();
+      win.document.write(buildHonobonoPrintHtml_(data));
+      win.document.close();
+      win.focus();
+      window.setTimeout(function() { win.print(); }, 400);
+    }).catch(function(error) {
+      try { win.close(); } catch (e) {}
+      handleImportError(error);
     });
   }
 
   function initActions() {
     $('load-month-button').addEventListener('click', reloadMonth);
+
+    $('honobono-save-button').addEventListener('click', function() {
+      saveHonobonoBillingDraft();
+    });
+
+    $('honobono-print-button').addEventListener('click', function() {
+      openHonobonoPrintPreview();
+    });
+
+    $('billing-name-search-input').addEventListener('input', function(event) {
+      handleBillingNameSearchInput(event.target.value);
+    });
+
+    $('honobono-sort').addEventListener('change', function() {
+      renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+    });
+
+    $('cash-search-input').addEventListener('input', function(event) {
+      handleCashSearchInput(event.target.value);
+    });
+
+    $('reconcile-sort').addEventListener('change', function() {
+      renderReconcileTable(state.reconcile);
+    });
 
     $('honobono-import-button').addEventListener('click', function() {
       var month = requireTargetMonth();
@@ -671,55 +1642,9 @@
         showMessage('ほのぼの ' + result.count + '件を取込しました。', 'success');
         invalidateMonthCache();
         return reloadMonthSnapshot().then(function() {
-          renderHonobonoTable(true);
+          renderHonobonoBillingTable(true);
         });
       }).catch(handleImportError);
-    });
-
-    $('adj-search-button').addEventListener('click', function() {
-      runServer('searchMasterUsers', $('adj-search').value, $('adj-include-ended').checked).then(function(rows) {
-        renderTable('adj-search-results', [
-          { key: 'matchId', label: 'ID' },
-          { key: 'name', label: '氏名' },
-          { key: 'kana', label: 'フリガナ' },
-          { key: 'category', label: '区分' },
-          { key: 'pick', label: '選択', render: function(r) {
-            return '<button data-pick-user="' + r.matchId + '" data-pick-name="' + r.name + '">選択</button>';
-          } }
-        ], rows);
-        document.querySelectorAll('[data-pick-user]').forEach(function(button) {
-          button.addEventListener('click', function() {
-            $('adj-match-id').value = button.getAttribute('data-pick-user');
-            $('adj-name').value = button.getAttribute('data-pick-name');
-          });
-        });
-      });
-    });
-
-    $('adj-save-button').addEventListener('click', function() {
-      var month = requireTargetMonth();
-      if (!month) return;
-      runServer('saveAdjustment', {
-        targetMonth: month,
-        matchId: $('adj-match-id').value,
-        name: $('adj-name').value,
-        type: $('adj-type').value,
-        targetBillingMonth: $('adj-target-month').value,
-        amount: $('adj-amount').value,
-        reason: $('adj-reason').value,
-        memo: $('adj-memo').value
-      }).then(function() { return reloadMonth(); });
-    });
-
-    $('cash-save-button').addEventListener('click', function() {
-      runServer('saveCashMaster', {
-        matchId: $('cash-match-id').value,
-        name: $('cash-name').value,
-        usuallyCash: $('cash-usually').checked,
-        startMonth: $('cash-start-month').value,
-        endMonth: $('cash-end-month').value,
-        memo: $('cash-memo').value
-      }).then(function() { return reloadMonth(); });
     });
 
     $('eshu-refresh-button').addEventListener('click', function() { renderEshuInputTable(true); });
@@ -732,26 +1657,26 @@
         return runServer('importEshuCsv', month, csvText);
       }).then(function(result) {
         applyImportResult(result, 'e集ちゃん');
-        return reloadMonthSnapshot().then(function() {
-          renderEshuImportTable(true);
-          loadListTab('照合結果', true);
-        });
+        renderReconcileSummaryFromData(result && result.reconcile
+          ? result.reconcile.comparisonSummary
+          : null);
       }).catch(handleImportError);
     });
 
     $('reconcile-button').addEventListener('click', function() {
       var month = requireTargetMonth();
       if (!month) return;
-      runServer('runReconcile', month).then(function(result) {
+      runServerSilent('ensureMasterUserCache').then(function() {
+        return runServer('runReconcile', month);
+      }).then(function(result) {
         if (!result) {
           showMessage('照合処理の応答がありませんでした。読み込みで結果を確認してください。', 'info');
           return reloadMonthSnapshot();
         }
         applyImportResult(result, '照合');
-        return reloadMonthSnapshot().then(function() {
-          renderEshuImportTable(true);
-          loadListTab('照合結果', true);
-        });
+        renderReconcileSummaryFromData(result && result.reconcile
+          ? result.reconcile.comparisonSummary
+          : null);
       }).catch(handleImportError);
     });
 
@@ -770,6 +1695,14 @@
     });
   }
 
+  function warmMasterCacheIfNeeded() {
+    runServerSilent('getMasterUserCacheStatus').then(function(status) {
+      if (status && !status.hasCache) {
+        runServerSilent('ensureMasterUserCache').catch(function() {});
+      }
+    }).catch(function() {});
+  }
+
   function init() {
     initNav();
     initActions();
@@ -777,7 +1710,9 @@
       if (result && result.version) {
         $('app-version').textContent = 'v' + result.version;
       }
+      if ($('ui-build')) $('ui-build').textContent = 'UI ' + UI_BUILD;
       $('target-month').value = defaultTargetMonthValue();
+      warmMasterCacheIfNeeded();
       return reloadMonth();
     }).catch(handleImportError);
   }

@@ -1,11 +1,6 @@
 function getMonthSheet_() {
   var ss = getBillingSpreadsheet_();
-  var sheet = ensureSheet_(ss, APP.SHEETS.MONTH, APP.HEADERS.MONTH);
-  var monthCol = APP.HEADERS.MONTH.indexOf('対象月') + 1;
-  if (monthCol > 0) {
-    sheet.getRange(1, monthCol, Math.max(sheet.getLastRow(), 1), 1).setNumberFormat('@');
-  }
-  return sheet;
+  return ensureSheet_(ss, APP.SHEETS.MONTH, APP.HEADERS.MONTH);
 }
 
 function getMonthRow_(targetMonth) {
@@ -127,14 +122,29 @@ function buildMonthResponse_(row) {
 function updateMonthRow_(targetMonth, patch) {
   var month = normalizeYearMonth_(targetMonth);
   if (!month) throw new Error('対象月が不正です。');
-  getOrCreateMonthNoLock_(month);
   var sheet = getMonthSheet_();
-  var row = getMonthRow_(month);
-  if (!row) throw new Error('対象月が見つかりません。');
+  var rowIndex = findRowIndexByKey_(sheet, '対象月', month);
+  if (rowIndex < 0) {
+    getOrCreateMonthNoLock_(month);
+    rowIndex = findRowIndexByKey_(sheet, '対象月', month);
+  }
+  if (rowIndex < 0) throw new Error('対象月が見つかりません。');
+
+  var headers = APP.HEADERS.MONTH;
+  var headerRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0]
+    .map(function(value) { return normalizeString_(value); });
+  var values = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+  var row = {};
+  headerRow.forEach(function(header, index) {
+    if (!header) return;
+    row[header] = normalizeSheetValueForClient_(values[index]);
+  });
   Object.keys(patch).forEach(function(key) {
     row[key] = patch[key];
   });
-  upsertRowByKey_(sheet, APP.HEADERS.MONTH, '対象月', row);
+  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([headers.map(function(header) {
+    return row[header] == null ? '' : row[header];
+  })]);
   return row;
 }
 
@@ -142,6 +152,7 @@ function saveWorkState(targetMonth, payload) {
   validateConfig_();
   return withScriptLock_(function() {
     assertMonthEditable_(targetMonth);
+    var month = normalizeYearMonth_(targetMonth);
     var patch = {};
     if (payload.completeMarkId !== undefined) {
       patch['完了マーク照合用ID'] = normalizeIdForMatch_(payload.completeMarkId);
@@ -151,14 +162,29 @@ function saveWorkState(targetMonth, payload) {
       patch['最終コピー日時'] = formatDateTime_(new Date());
       patch['最終コピー金額'] = payload.lastCopy.amount;
     }
-    updateMonthRow_(targetMonth, patch);
-    return buildMonthResponse_(getMonthRow_(targetMonth));
+    updateMonthRow_(month, patch);
+    var response = { targetMonth: month };
+    if (payload.completeMarkId !== undefined) {
+      response.completeMarkId = normalizeString_(patch['完了マーク照合用ID'] || '');
+    }
+    if (payload.lastCopy) {
+      response.lastCopyId = normalizeString_(patch['最終コピー照合用ID'] || '');
+      response.lastCopyAt = patch['最終コピー日時'] || '';
+      response.lastCopyAmount = patch['最終コピー金額'] || '';
+    }
+    return response;
   });
 }
 
 function refreshMonthSummary_(targetMonth) {
-  var summary = computeBillingSummary_(targetMonth);
-  var mismatchCount = countMismatchResults_(targetMonth);
+  clearBillingRecordCache_(targetMonth);
+  var ctx = buildBillingRecordContext_(targetMonth);
+  return refreshMonthSummaryFromRecords_(targetMonth, ctx.records, ctx.honobono);
+}
+
+function refreshMonthSummaryFromRecords_(targetMonth, records, honobono, mismatchCount) {
+  var summary = summarizeBillingRecords_(records || [], honobono || { rows: {} });
+  if (mismatchCount == null) mismatchCount = countMismatchResults_(targetMonth);
   updateMonthRow_(targetMonth, {
     'ほのぼの取込件数': summary.honobonoCount,
     'ほのぼの取込合計額': summary.honobonoTotal,
@@ -170,6 +196,7 @@ function refreshMonthSummary_(targetMonth) {
     '入力対象合計額': summary.inputTotal,
     '不一致件数': mismatchCount
   });
+  return summary;
 }
 
 function countMismatchResults_(targetMonth) {

@@ -1,9 +1,64 @@
-function computeBillingRecords_(targetMonth) {
+function getAdditionalOnlyAmount_(adjList) {
+  return adjList.filter(function(item) {
+    return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
+  }).reduce(function(sum, item) {
+    return sum + item.amount;
+  }, 0);
+}
+
+function buildBillingRecordContext_(targetMonth) {
   var month = normalizeYearMonth_(targetMonth);
+  var perf = startPerfLog_('buildBillingRecordContext_', { month: month });
+  var memoryCtx = getBillingContextMemoryCache_(month);
+  if (memoryCtx) {
+    perf.mark('read memory cache');
+    perf.done();
+    return memoryCtx;
+  }
+
+  var cachedRecords = readBillingRecordCache_(month);
+  if (cachedRecords) {
+    var cachedCtx = buildBillingContextFromCachedRecords_(month, cachedRecords);
+    setBillingContextMemoryCache_(month, cachedCtx);
+    perf.mark('read billing cache');
+    perf.done();
+    return cachedCtx;
+  }
+
   var users = loadMasterUsers_();
+  perf.mark('loadMasterUsers');
   var honobono = getLatestHonobonoMap_(month);
+  perf.mark('getLatestHonobonoMap');
   var adjustments = getActiveAdjustments_(month);
+  perf.mark('getActiveAdjustments');
   var cashMaster = getActiveCashMasterMap_(month);
+  perf.mark('getActiveCashMasterMap');
+  var records = computeBillingRecordsFromData_(month, users, honobono, adjustments, cashMaster);
+  perf.mark('computeBillingRecordsFromData');
+  var ctx = {
+    month: month,
+    users: users,
+    honobono: honobono,
+    adjustments: adjustments,
+    cashMaster: cashMaster,
+    records: records
+  };
+  storeBillingRecordContext_(ctx);
+  perf.mark('write billing cache');
+  perf.done();
+  return ctx;
+}
+
+function computeBillingRecords_(targetMonth) {
+  return buildBillingRecordContext_(targetMonth).records;
+}
+
+function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustments, cashMaster) {
+  var month = normalizeYearMonth_(targetMonth);
+  users = users || {};
+  honobono = honobono || { rows: {}, list: [] };
+  adjustments = adjustments || {};
+  cashMaster = cashMaster || {};
   var allIds = {};
   Object.keys(honobono.rows).forEach(function(id) { allIds[id] = true; });
   Object.keys(adjustments).forEach(function(id) { allIds[id] = true; });
@@ -20,21 +75,14 @@ function computeBillingRecords_(targetMonth) {
       return item.type === APP.ADJUSTMENT_TYPES.CASH;
     });
     var hasHold = adjList.some(function(item) {
-      return item.type === APP.ADJUSTMENT_TYPES.HOLD;
+      return isMonthlyStopType_(item.type);
     });
     if (!hasCash && !hasHold && cashMaster[matchId]) hasCash = true;
 
     var hasPastOnly = adjList.some(function(item) {
       return item.type === APP.ADJUSTMENT_TYPES.PAST_ONLY;
     });
-    var amountFix = adjList.find(function(item) {
-      return item.type === APP.ADJUSTMENT_TYPES.AMOUNT_FIX;
-    });
-    var additionalAmount = adjList.filter(function(item) {
-      return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
-    }).reduce(function(sum, item) {
-      return sum + item.amount;
-    }, 0);
+    var additionalOnlyAmount = getAdditionalOnlyAmount_(adjList);
     var pastOnlyAmount = adjList.filter(function(item) {
       return item.type === APP.ADJUSTMENT_TYPES.PAST_ONLY;
     }).reduce(function(sum, item) {
@@ -44,12 +92,12 @@ function computeBillingRecords_(targetMonth) {
     var billingStatus = '通常請求';
     var finalAmount = 0;
     var isInputTarget = false;
+    var isMonthlyStop = false;
+    var showOnInputList = false;
+    var canCopyAmount = false;
+    var isReconcileTarget = false;
     var warnings = [];
 
-    if (!master) warnings.push(APP.RECONCILE_JUDGMENT.ID_UNREGISTERED);
-    if (honobonoRow && shouldShowNameWarning_(matchId, honobonoName, masterName)) {
-      warnings.push(APP.RECONCILE_JUDGMENT.NAME_WARNING);
-    }
     if (honobonoRow && honobonoRow.judgment === APP.IMPORT_JUDGMENT.AMOUNT_ERROR) {
       warnings.push('金額エラー');
     }
@@ -60,94 +108,66 @@ function computeBillingRecords_(targetMonth) {
     } else if (hasHold) {
       billingStatus = APP.ADJUSTMENT_TYPES.HOLD;
       finalAmount = 0;
+      isMonthlyStop = true;
+      showOnInputList = true;
+      isReconcileTarget = true;
     } else if (hasPastOnly && !honobonoRow) {
       billingStatus = APP.ADJUSTMENT_TYPES.PAST_ONLY;
-      finalAmount = pastOnlyAmount + additionalAmount;
+      finalAmount = pastOnlyAmount + additionalOnlyAmount;
       isInputTarget = finalAmount !== 0 || adjList.length > 0;
+      showOnInputList = isInputTarget;
+      canCopyAmount = isInputTarget;
+      isReconcileTarget = isInputTarget;
     } else {
-      if (amountFix) finalAmount = amountFix.amount;
-      else finalAmount = honobonoAmount + additionalAmount;
-      if (additionalAmount > 0 && honobonoAmount > 0) billingStatus = '合算請求';
-      else if (additionalAmount > 0) billingStatus = '追加請求あり';
+      finalAmount = honobonoAmount + additionalOnlyAmount;
+      if (additionalOnlyAmount > 0 && honobonoAmount > 0) billingStatus = '合算請求';
+      else if (additionalOnlyAmount > 0) billingStatus = '追加請求あり';
       else billingStatus = '通常請求';
       isInputTarget = true;
+      showOnInputList = true;
+      canCopyAmount = true;
+      isReconcileTarget = true;
     }
 
-    if (hasCash || hasHold) isInputTarget = false;
+    if (hasCash) {
+      isInputTarget = false;
+      showOnInputList = false;
+      isReconcileTarget = false;
+    }
 
     return {
       matchId: matchId,
       rawId: honobonoRow ? honobonoRow.rawId : (master ? master.rawId : matchId),
-      name: masterName || honobonoName || (adjList[0] ? adjList[0].name : ''),
+      name: honobonoName || masterName || (adjList[0] ? adjList[0].name : ''),
       honobonoName: honobonoName,
       masterName: masterName,
+      masterKana: master ? master.kana : '',
       masterCategory: master ? master.category : APP.MASTER_CATEGORY.UNREGISTERED,
       billingStatus: billingStatus,
       honobonoAmount: honobonoAmount,
-      additionalAmount: additionalAmount + pastOnlyAmount,
+      additionalAmount: additionalOnlyAmount + pastOnlyAmount,
+      additionalOnlyAmount: additionalOnlyAmount,
       finalAmount: finalAmount,
       isInputTarget: isInputTarget,
+      isMonthlyStop: isMonthlyStop,
+      showOnInputList: showOnInputList,
+      canCopyAmount: canCopyAmount,
+      isReconcileTarget: isReconcileTarget,
+      inputDisplay: isMonthlyStop ? APP.MONTHLY_STOP_LABEL : String(finalAmount),
       adjustments: adjList,
       warnings: warnings,
       importJudgment: honobonoRow ? honobonoRow.judgment : ''
     };
-  }).sort(function(a, b) {
-    return a.matchId.localeCompare(b.matchId);
   });
 }
 
+function summarizeBillingRecords_(records, honobono) {
+  return buildHonobonoDisplaySummary_(records, honobono);
+}
+
 function computeBillingSummary_(targetMonth) {
-  var records = computeBillingRecords_(targetMonth);
-  var honobono = getLatestHonobonoMap_(targetMonth);
-  var summary = {
-    honobonoCount: Object.keys(honobono.rows).length,
-    honobonoTotal: Object.keys(honobono.rows).reduce(function(sum, key) {
-      return sum + honobono.rows[key].amount;
-    }, 0),
-    normalCount: 0,
-    normalTotal: 0,
-    additionalCount: 0,
-    additionalTotal: 0,
-    pastOnlyCount: 0,
-    pastOnlyTotal: 0,
-    cashCount: 0,
-    cashTotal: 0,
-    holdCount: 0,
-    holdTotal: 0,
-    inputCount: 0,
-    inputTotal: 0
-  };
-
-  records.forEach(function(record) {
-    if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) {
-      summary.cashCount += 1;
-      summary.cashTotal += record.honobonoAmount;
-    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD) {
-      summary.holdCount += 1;
-      summary.holdTotal += record.honobonoAmount;
-    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) {
-      summary.pastOnlyCount += 1;
-      summary.pastOnlyTotal += record.finalAmount;
-      if (record.isInputTarget) {
-        summary.inputCount += 1;
-        summary.inputTotal += record.finalAmount;
-      }
-    } else {
-      if (record.additionalAmount > 0) {
-        summary.additionalCount += 1;
-        summary.additionalTotal += record.additionalAmount;
-      } else {
-        summary.normalCount += 1;
-        summary.normalTotal += record.honobonoAmount;
-      }
-      if (record.isInputTarget) {
-        summary.inputCount += 1;
-        summary.inputTotal += record.finalAmount;
-      }
-    }
-  });
-
-  return summary;
+  var ctx = buildBillingRecordContext_(targetMonth);
+  return summarizeBillingRecords_(ctx.records, ctx.honobono);
 }
 
 function getBillingBreakdown(targetMonth) {
@@ -156,92 +176,94 @@ function getBillingBreakdown(targetMonth) {
 
 function getDashboard(targetMonth) {
   validateConfig_();
-  var month = normalizeYearMonth_(targetMonth);
-  var records = computeBillingRecords_(month);
-  var honobono = getLatestHonobonoMap_(month);
-  var summary = {
-    honobonoCount: Object.keys(honobono.rows).length,
-    honobonoTotal: Object.keys(honobono.rows).reduce(function(sum, key) {
-      return sum + honobono.rows[key].amount;
-    }, 0),
-    normalCount: 0,
-    normalTotal: 0,
-    additionalCount: 0,
-    additionalTotal: 0,
-    pastOnlyCount: 0,
-    pastOnlyTotal: 0,
-    cashCount: 0,
-    cashTotal: 0,
-    holdCount: 0,
-    holdTotal: 0,
-    inputCount: 0,
-    inputTotal: 0
-  };
-
-  records.forEach(function(record) {
-    if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) {
-      summary.cashCount += 1;
-      summary.cashTotal += record.honobonoAmount;
-    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD) {
-      summary.holdCount += 1;
-      summary.holdTotal += record.honobonoAmount;
-    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) {
-      summary.pastOnlyCount += 1;
-      summary.pastOnlyTotal += record.finalAmount;
-      if (record.isInputTarget) {
-        summary.inputCount += 1;
-        summary.inputTotal += record.finalAmount;
-      }
-    } else {
-      if (record.additionalAmount > 0) {
-        summary.additionalCount += 1;
-        summary.additionalTotal += record.additionalAmount;
-      } else {
-        summary.normalCount += 1;
-        summary.normalTotal += record.honobonoAmount;
-      }
-      if (record.isInputTarget) {
-        summary.inputCount += 1;
-        summary.inputTotal += record.finalAmount;
-      }
-    }
-  });
+  var ctx = buildBillingRecordContext_(targetMonth);
+  var records = ctx.records;
+  var summary = summarizeBillingRecords_(records, ctx.honobono);
 
   var issueCount = records.filter(function(record) {
     return record.warnings.length > 0
-      || record.importJudgment === APP.IMPORT_JUDGMENT.ID_UNREGISTERED
       || record.importJudgment === APP.IMPORT_JUDGMENT.AMOUNT_ERROR;
   }).length;
 
   return {
     summary: summary,
     issueCount: issueCount,
-    eshuExpectedCount: summary.inputCount,
-    eshuExpectedTotal: summary.inputTotal
+    eshuExpectedCount: summary.inputCount || 0,
+    eshuExpectedTotal: summary.inputTotal || 0
   };
+}
+
+function toHonobonoBillingRow_(record) {
+  var status = '通常';
+  if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) status = APP.ADJUSTMENT_TYPES.CASH;
+  else if (record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD) status = APP.ADJUSTMENT_TYPES.HOLD;
+  else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) status = '過去分のみ';
+  else if (record.billingStatus === '合算請求' || record.billingStatus === '追加請求あり') status = '合算';
+  var additionalItems = (record.adjustments || []).filter(function(item) {
+    return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
+  }).map(function(item) {
+    return { id: item.id, amount: item.amount, memo: item.memo || '' };
+  });
+  return {
+    matchId: record.matchId,
+    rawId: record.rawId,
+    name: record.name,
+    kana: record.masterKana || '',
+    honobonoAmount: record.honobonoAmount,
+    status: status,
+    additionalAmount: record.additionalOnlyAmount,
+    additionalItems: additionalItems,
+    finalAmount: record.finalAmount,
+    billingStatus: record.billingStatus
+  };
+}
+
+function buildHonobonoBillingListFromRecords_(records, honobono, summary) {
+  var honobonoRows = [];
+  var pastOnlyRows = [];
+  records.forEach(function(record) {
+    if (record.honobonoName || record.honobonoAmount > 0) {
+      honobonoRows.push(toHonobonoBillingRow_(record));
+    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) {
+      pastOnlyRows.push(toHonobonoBillingRow_(record));
+    }
+  });
+  sortBillingRecords_(honobonoRows, 'name');
+  sortBillingRecords_(pastOnlyRows, 'name');
+  return {
+    rows: honobonoRows,
+    pastOnlyRows: pastOnlyRows,
+    summary: summary || summarizeBillingRecords_(records, honobono)
+  };
+}
+
+function getHonobonoBillingList(targetMonth) {
+  validateConfig_();
+  return runWithPerfLog_('getHonobonoBillingList', { month: targetMonth }, function(perf) {
+    var ctx = buildBillingRecordContext_(targetMonth);
+    perf.mark('buildBillingRecordContext');
+    var result = buildHonobonoBillingListFromRecords_(ctx.records, ctx.honobono);
+    perf.mark('buildHonobonoBillingListFromRecords');
+    return attachBillingMemosToHonobonoList_(targetMonth, result);
+  });
 }
 
 function getInputTargetList(targetMonth, sortBy) {
   validateConfig_();
   var records = computeBillingRecords_(targetMonth).filter(function(record) {
-    return record.isInputTarget;
+    return record.showOnInputList;
   });
-  if (sortBy === 'name') {
-    records.sort(function(a, b) {
-      return a.name.localeCompare(b.name, 'ja');
-    });
-  }
-  return records;
+  return sortBillingRecords_(records, sortBy || 'id');
 }
 
 function getListTabData(targetMonth, tabName) {
   validateConfig_();
-  var records = computeBillingRecords_(targetMonth);
+  var records = sortBillingRecords_(computeBillingRecords_(targetMonth), 'id');
   var tab = normalizeString_(tabName);
   if (tab === '入力対象') {
     return records.filter(function(record) { return record.isInputTarget; });
   }
-  if (tab === '請求保留') {
+  if (tab === '当月停止' || tab === '請求保留') {
     return records.filter(function(record) {
       return record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD;
     });
@@ -253,13 +275,12 @@ function getListTabData(targetMonth, tabName) {
   }
   if (tab === '合算・追加請求') {
     return records.filter(function(record) {
-      return record.additionalAmount > 0 || record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY;
+      return record.additionalOnlyAmount > 0 || record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY;
     });
   }
   if (tab === '要確認') {
     return records.filter(function(record) {
       return record.warnings.length > 0
-        || record.importJudgment === APP.IMPORT_JUDGMENT.ID_UNREGISTERED
         || record.importJudgment === APP.IMPORT_JUDGMENT.AMOUNT_ERROR
         || record.importJudgment === APP.IMPORT_JUDGMENT.AMOUNT_WARNING;
     });

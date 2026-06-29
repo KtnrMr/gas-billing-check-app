@@ -20,8 +20,12 @@ function isNameConfirmed_(matchId) {
 }
 
 function shouldShowNameWarning_(matchId, nameA, nameB) {
+  return shouldShowNameWarningWithMap_(getNameConfirmedMap_(), matchId, nameA, nameB);
+}
+
+function shouldShowNameWarningWithMap_(confirmedMap, matchId, nameA, nameB) {
   if (!namesDiffer_(nameA, nameB)) return false;
-  return !isNameConfirmed_(matchId);
+  return !confirmedMap[normalizeIdForMatch_(matchId)];
 }
 
 function getNameConfirmedList() {

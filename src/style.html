@@ -9,7 +9,8 @@ body {
 .app-shell {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 .sidebar {
   background: #1f2937;
@@ -18,6 +19,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100vh;
+  overflow-y: auto;
+  position: sticky;
+  top: 0;
 }
 .brand h1 {
   margin: 0;
@@ -78,6 +83,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .main {
   padding: 20px 24px 40px;
   min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 .screen-header h2 {
   margin: 0 0 4px;
@@ -202,5 +209,140 @@ table.data-table tr:hover { background: #f9fafb; }
   margin-bottom: 12px;
 }
 .diff-panel h3 { margin: 0 0 8px; font-size: 14px; }
-.diff-panel ul { margin: 0; padding-left: 18px; }
+.row-monthly-stop { background: #f3f4f6 !important; }
+.status-select,
+.additional-input,
+.amount-text-input,
+.past-only-amount {
+  min-width: 110px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+.additional-input,
+.amount-text-input,
+.past-only-amount { width: 90px; }
+.additional-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; align-items: center; }
+.additional-row { display: inline-flex; gap: 4px; align-items: center; }
+.row-billing-cash { background: #ecfdf5 !important; }
+.row-billing-hold { background: #f3f4f6 !important; }
+.row-billing-combined { background: #eff6ff !important; }
+.row-past-only { background: #fefce8 !important; }
+.row-reconcile-mismatch { background: #fee2e2 !important; }
+.row-reconcile-warn { background: #fef3c7 !important; }
+.row-reconcile-not-input { background: #fff7ed !important; }
+.save-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.draft-status { font-size: 13px; color: #b45309; }
+.draft-status.saved { color: #166534; }
+.search-candidates {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+.candidate-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  cursor: default;
+}
+.candidate-card-clickable { cursor: pointer; }
+.candidate-card-clickable:hover { background: #f9fafb; border-color: #cbd5e1; }
+.candidate-card-body { flex: 1; min-width: 0; }
+.candidate-add-button {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+.candidate-add-button:hover { background: #dbeafe; }
+.candidate-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #6b7280;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f3f4f6;
+}
+.candidate-name { font-weight: 600; font-size: 14px; }
+.candidate-meta { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.candidate-empty,
+.candidate-loading {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.checkbox-large input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  cursor: pointer;
+}
+.checkbox-large {
+  font-size: 14px;
+  gap: 8px !important;
+  padding: 4px 0;
+}
+.billing-toolbar { flex-wrap: wrap; gap: 12px; align-items: end; }
+.row-search-highlight { outline: 2px solid #f59e0b; outline-offset: -2px; }
+.reconcile-summary-table-wrap { margin-bottom: 12px; }
+table.reconcile-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+table.reconcile-summary-table th,
+table.reconcile-summary-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+  text-align: center;
+}
+table.reconcile-summary-table th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+table.reconcile-summary-table td.label-cell {
+  text-align: left;
+  font-weight: 600;
+  background: #f9fafb;
+}
+.reconcile-summary-ng { color: #b91c1c; font-weight: 600; }
+.reconcile-summary-ok { color: #166534; font-weight: 600; }
+.ui-build { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.checkbox-label { display: inline-flex; align-items: center; gap: 6px; }
+.save-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.billing-memo-input {
+  width: 100%;
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.memo-cell { min-width: 160px; }
+.billing-memo-text { white-space: pre-wrap; word-break: break-word; }
+.additional-add,
+.additional-remove {
+  padding: 4px 8px;
+  font-size: 12px;
+}
 </style>

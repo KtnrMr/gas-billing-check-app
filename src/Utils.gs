@@ -2,6 +2,14 @@ function normalizeString_(value) {
   return String(value == null ? '' : value).replace(/\u00A0/g, ' ').trim();
 }
 
+function toHiraganaForSearch_(value) {
+  var text = normalizeString_(value);
+  if (!text) return '';
+  return text.replace(/[ァ-ヶ]/g, function(ch) {
+    return String.fromCharCode(ch.charCodeAt(0) - 0x60);
+  }).toLowerCase();
+}
+
 function normalizeIdForMatch_(value) {
   var text = normalizeString_(value)
     .replace(/[０-９]/g, function(char) {
@@ -52,6 +60,59 @@ function getOperator_() {
   } catch (e2) {
     return 'unknown';
   }
+}
+
+function isMonthlyStopType_(type) {
+  var text = normalizeString_(type);
+  return text === APP.ADJUSTMENT_TYPES.HOLD || text === APP.LEGACY_HOLD_LABEL;
+}
+
+function isMonthlyStopAmountText_(value) {
+  return normalizeString_(value).replace(/\s+/g, '') === APP.MONTHLY_STOP_LABEL;
+}
+
+function compareMatchIds_(left, right) {
+  var aText = normalizeString_(left);
+  var bText = normalizeString_(right);
+  if (/^\d+$/.test(aText) && /^\d+$/.test(bText)) {
+    var aNum = Number(aText);
+    var bNum = Number(bText);
+    if (aNum !== bNum) return aNum - bNum;
+    return aText.length - bText.length;
+  }
+  return aText.localeCompare(bText);
+}
+
+function compareByKanaName_(a, b) {
+  var keyA = normalizeString_(a.kana || a.masterKana || a.name);
+  var keyB = normalizeString_(b.kana || b.masterKana || b.name);
+  return keyA.localeCompare(keyB, 'ja');
+}
+
+function sortBillingRecords_(records, sortBy) {
+  records.sort(function(a, b) {
+    if (sortBy === 'name') return compareByKanaName_(a, b);
+    return compareMatchIds_(a.rawId || a.matchId, b.rawId || b.matchId);
+  });
+  return records;
+}
+
+function parseEshuBillingAmount_(value) {
+  if (isMonthlyStopAmountText_(value)) {
+    return { ok: true, monthlyStop: true, value: APP.MONTHLY_STOP_LABEL };
+  }
+  return parseAmount_(value);
+}
+
+function parseStoredEshuAmount_(value) {
+  if (isMonthlyStopAmountText_(value)) {
+    return { monthlyStop: true, amount: 0, display: APP.MONTHLY_STOP_LABEL };
+  }
+  var num = Number(value);
+  if (isFinite(num) && normalizeString_(value) !== '') {
+    return { monthlyStop: false, amount: Math.round(num), display: String(Math.round(num)) };
+  }
+  return { monthlyStop: false, amount: 0, display: normalizeString_(value) };
 }
 
 function parseAmount_(value) {

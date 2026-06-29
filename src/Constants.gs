@@ -1,21 +1,26 @@
 var APP = Object.freeze({
-  VERSION: '0.1.9',
+  VERSION: '0.4.8',
+  MONTHLY_STOP_LABEL: '当月停止',
+  LEGACY_HOLD_LABEL: '請求保留',
   TIMEZONE: 'Asia/Tokyo',
   PROPERTY_KEYS: {
     BILLING_SS_ID: 'BILLING_SPREADSHEET_ID',
-    MASTER_SS_ID: 'MASTER_SPREADSHEET_ID'
+    MASTER_SS_ID: 'MASTER_SPREADSHEET_ID',
+    DEBUG_PERFORMANCE: 'DEBUG_PERFORMANCE'
   },
   SETTINGS_KEYS: {
     MASTER_SPREADSHEET_ID: 'MASTER_SPREADSHEET_ID',
     BASIC_INFO_SHEET_NAME: 'BASIC_INFO_SHEET_NAME',
     ENDED_USER_SHEET_NAME: 'ENDED_USER_SHEET_NAME',
-    MASTER_ID_COLUMN: 'MASTER_ID_COLUMN'
+    MASTER_ID_COLUMN: 'MASTER_ID_COLUMN',
+    MASTER_CACHE_SYNCED_AT: 'MASTER_CACHE_SYNCED_AT'
   },
   DEFAULT_SETTINGS: {
     MASTER_SPREADSHEET_ID: '',
     BASIC_INFO_SHEET_NAME: '基本情報マスタ',
     ENDED_USER_SHEET_NAME: '利用終了者マスタ',
-    MASTER_ID_COLUMN: 'ID'
+    MASTER_ID_COLUMN: 'ID',
+    MASTER_CACHE_SYNCED_AT: ''
   },
   SHEETS: {
     MONTH: '請求月管理',
@@ -26,7 +31,10 @@ var APP = Object.freeze({
     RECONCILE: '照合結果',
     HISTORY: '操作履歴',
     NAME_CONFIRMED: '氏名確認済み',
-    SETTINGS: '設定'
+    SETTINGS: '設定',
+    MASTER_CACHE: '利用者マスタキャッシュ',
+    BILLING_CACHE: '請求計算キャッシュ',
+    BILLING_MEMO: '請求整理メモ'
   },
   MONTH_STATUS: {
     WORKING: '作業中',
@@ -40,7 +48,7 @@ var APP = Object.freeze({
   },
   ADJUSTMENT_TYPES: {
     CASH: '現金支払い',
-    HOLD: '請求保留',
+    HOLD: '当月停止',
     ADDITIONAL: '追加請求',
     PAST_ONLY: '過去分のみ請求',
     AMOUNT_FIX: '金額修正'
@@ -96,6 +104,17 @@ var APP = Object.freeze({
     SETTINGS: ['設定キー', '設定値', '説明'],
     NAME_CONFIRMED: [
       '照合用ID', '氏名', '確認日時', '確認者', 'メモ'
+    ],
+    MASTER_CACHE: [
+      '照合用ID', '顧客番号', '氏名', 'フリガナ', 'マスタ区分', '同期日時'
+    ],
+    BILLING_CACHE: [
+      '対象月', '更新日時', '照合用ID', '顧客番号', '氏名', '基本情報氏名', 'フリガナ', 'マスタ区分',
+      '請求状態', 'ほのぼの氏名', 'ほのぼの請求額', '追加請求額', '過去分金額', '最終請求額',
+      '入力対象', '当月停止', '照合対象', '入力一覧表示', '金額コピー可', '取込判定', '警告', '調整JSON'
+    ],
+    BILLING_MEMO: [
+      '対象月', '照合用ID', '氏名', 'メモ', '更新日時', '更新者'
     ]
   },
   HONOBONO_CSV: {
@@ -122,6 +141,7 @@ var APP = Object.freeze({
     ADJUSTMENT_DELETE: '調整削除',
     CASH_ADD: '現金マスタ追加',
     CASH_UPDATE: '現金マスタ変更',
+    CASH_DELETE: '現金マスタ削除',
     RECONCILE: '照合',
     CONFIRM: '確定',
     UNCONFIRM: '確定解除',
