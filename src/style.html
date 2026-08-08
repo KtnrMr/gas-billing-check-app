@@ -131,9 +131,17 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   color: #6b7280;
 }
 .summary-card .value {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   margin-top: 4px;
+  color: #4b5563;
+}
+.summary-card .amount {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 6px;
+  color: #111827;
+  letter-spacing: 0.01em;
 }
 .summary-card .sub {
   font-size: 12px;
@@ -198,6 +206,14 @@ table.data-table th {
 table.data-table tr:hover { background: #f9fafb; }
 .row-latest-copy { background: #fef3c7 !important; }
 .row-complete-mark { background: #dbeafe !important; }
+.row-latest-and-complete {
+  background: linear-gradient(90deg, #fef3c7 0%, #dbeafe 100%) !important;
+}
+.section-count {
+  font-weight: 600;
+  color: #4b5563;
+  font-size: 0.95em;
+}
 .judgment-ok { color: #166534; }
 .judgment-warn { color: #b45309; }
 .judgment-error { color: #b91c1c; }
@@ -230,6 +246,7 @@ table.data-table tr:hover { background: #f9fafb; }
 .row-reconcile-mismatch { background: #fee2e2 !important; }
 .row-reconcile-warn { background: #fef3c7 !important; }
 .row-reconcile-not-input { background: #fff7ed !important; }
+.row-reconcile-extra { background: #fce7f3 !important; }
 .save-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .draft-status { font-size: 13px; color: #b45309; }
 .draft-status.saved { color: #166534; }
@@ -344,5 +361,44 @@ table.reconcile-summary-table td.label-cell {
 .additional-remove {
   padding: 4px 8px;
   font-size: 12px;
+}
+.archive-admin-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.archive-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+.archive-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.archive-meta {
+  font-size: 13px;
+  margin: 4px 0;
+}
+.archive-meta-label {
+  display: inline-block;
+  min-width: 4.5em;
+  color: #6b7280;
+}
+.archive-help {
+  font-size: 13px;
+  color: #4b5563;
+  margin: 0 0 10px;
+}
+.archive-history-list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+}
+.empty-message {
+  font-size: 13px;
+  color: #6b7280;
 }
 </style>

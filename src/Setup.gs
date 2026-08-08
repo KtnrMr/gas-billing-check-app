@@ -13,6 +13,7 @@ function setupApplicationSheets() {
     ensureSheet_(ss, APP.SHEETS.MASTER_CACHE, APP.HEADERS.MASTER_CACHE);
     ensureSheet_(ss, APP.SHEETS.BILLING_CACHE, APP.HEADERS.BILLING_CACHE);
     ensureSheet_(ss, APP.SHEETS.BILLING_MEMO, APP.HEADERS.BILLING_MEMO);
+    ensureArchiveSettingInitialized_();
     var settingsSheet = ensureSheet_(ss, APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS);
     seedDefaultSettings_(settingsSheet);
     return {

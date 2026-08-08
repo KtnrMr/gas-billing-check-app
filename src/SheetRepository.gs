@@ -36,6 +36,23 @@ function assertHeaders_(sheet, headers) {
   }
 }
 
+/** 不足見出しがあれば末尾に追加（破壊的アサーションの代わりに使う） */
+function ensureHeadersPresent_(sheet, headers) {
+  if (!sheet) throw new Error('シートが見つかりません。');
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var actual = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+    .map(function(value) { return normalizeString_(value); });
+  while (actual.length && !actual[actual.length - 1]) actual.pop();
+  var missing = (headers || []).filter(function(header) {
+    return header && actual.indexOf(header) < 0;
+  });
+  if (!missing.length) return;
+  sheet.getRange(1, actual.length + 1, 1, missing.length).setValues([missing]);
+  sheet.getRange(1, actual.length + 1, 1, missing.length)
+    .setFontWeight('bold')
+    .setBackground('#dbeafe');
+}
+
 function ensureSheet_(spreadsheet, name, headers) {
   var sheet = spreadsheet.getSheetByName(name);
   if (!sheet) sheet = spreadsheet.insertSheet(name);
@@ -47,7 +64,7 @@ function ensureSheet_(spreadsheet, name, headers) {
       .setBackground('#dbeafe');
     sheet.autoResizeColumns(1, headers.length);
   } else {
-    assertHeaders_(sheet, headers);
+    ensureHeadersPresent_(sheet, headers);
   }
   return sheet;
 }
@@ -86,7 +103,7 @@ function writeSheetObjects_(sheet, headers, rows) {
       .setFontWeight('bold')
       .setBackground('#dbeafe');
   } else {
-    assertHeaders_(sheet, headers);
+    ensureHeadersPresent_(sheet, headers);
   }
 
   var dataValues = objectsToSheetValues_(headers, rows || []);
@@ -95,8 +112,9 @@ function writeSheetObjects_(sheet, headers, rows) {
   var currentDataRows = Math.max(0, lastRow - 1);
 
   if (neededDataRows > 0) {
-    sheet.getRange(2, 1, neededDataRows, headers.length).setValues(dataValues);
+    // 日時列は先に文字列書式にしてから書く（後付けだと ISO が UTC 解釈され +9h ずれる）
     formatTextColumns_(sheet, headers, 2, neededDataRows);
+    sheet.getRange(2, 1, neededDataRows, headers.length).setValues(dataValues);
   }
   if (currentDataRows > neededDataRows) {
     removeSheetDataRowsSafe_(sheet, neededDataRows + 2, currentDataRows - neededDataRows);
@@ -114,8 +132,8 @@ function objectsToSheetValues_(headers, rows) {
 function setSheetObjectRows_(sheet, headers, startRow, rows) {
   if (!rows || !rows.length) return;
   var values = objectsToSheetValues_(headers, rows);
-  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
   formatTextColumns_(sheet, headers, startRow, values.length);
+  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
 }
 
 function updateSheetObjectsAtDataIndexes_(sheet, headers, rows, dataIndexes) {
@@ -186,6 +204,8 @@ function appendSheetObjectsFast_(sheet, headers, rows) {
     sheet.setFrozenRows(1);
     startRow = 2;
   }
+  // 履歴など Fast 追記でも日時をテキスト固定（未設定だと UTC 解釈で +9h）
+  formatTextColumns_(sheet, headers, startRow, values.length);
   sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
 }
 
@@ -234,6 +254,7 @@ function replaceMonthRowsInSheet_(sheet, headers, monthHeader, month, newRows) {
     if (newRows && newRows.length) {
       if (allDataRemoved || firstRow <= 2 && deleteCount >= totalDataRows) {
         var values = objectsToSheetValues_(headers, newRows);
+        formatTextColumns_(sheet, headers, 2, values.length);
         sheet.getRange(2, 1, values.length, headers.length).setValues(values);
       } else {
         appendSheetObjectsFast_(sheet, headers, newRows);
@@ -298,6 +319,6 @@ function upsertRowByKey_(sheet, headers, keyHeader, row) {
     appendSheetObjects_(sheet, headers, [row]);
     return;
   }
-  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([values]);
   formatTextColumns_(sheet, headers, rowIndex, 1);
+  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([values]);
 }

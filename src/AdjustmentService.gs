@@ -337,9 +337,15 @@ function ensureCashAdjustmentsFromMaster_(targetMonth, matchIds) {
   var month = normalizeYearMonth_(targetMonth);
   var cashMap = getActiveCashMasterMap_(month);
   var adjustments = getActiveAdjustments_(month);
-  matchIds.forEach(function(matchId) {
-    if (!cashMap[matchId]) return;
-    var list = adjustments[matchId] || [];
+  var now = formatDateTime_(new Date());
+  var operator = getOperator_();
+  var newRows = [];
+  var historyEntries = [];
+
+  (matchIds || []).forEach(function(matchId) {
+    var id = normalizeIdForMatch_(matchId);
+    if (!id || !cashMap[id]) return;
+    var list = adjustments[id] || [];
     var hasCash = list.some(function(item) {
       return item.type === APP.ADJUSTMENT_TYPES.CASH;
     });
@@ -347,16 +353,46 @@ function ensureCashAdjustmentsFromMaster_(targetMonth, matchIds) {
       return isMonthlyStopType_(item.type);
     });
     if (hasCash || hasHold) return;
-    saveAdjustmentNoLock_({
+
+    var cashRow = cashMap[id];
+    var name = normalizeString_(cashRow['氏名']);
+    var adjustmentId = generateId_('ADJ');
+    var row = {
+      '調整ID': adjustmentId,
+      '対象月': month,
+      '照合用ID': id,
+      '氏名': name,
+      '調整区分': APP.ADJUSTMENT_TYPES.CASH,
+      '対象請求月': '',
+      '調整金額': 0,
+      '理由': '通常現金マスタ',
+      'メモ': normalizeString_(cashRow['理由・メモ']),
+      '有効': '有効',
+      '作成日時': now,
+      '作成者': operator,
+      '更新日時': now,
+      '更新者': operator,
+      '削除日時': '',
+      '削除者': ''
+    };
+    newRows.push(row);
+    historyEntries.push({
       targetMonth: month,
-      matchId: matchId,
-      name: cashMap[matchId]['氏名'],
-      type: APP.ADJUSTMENT_TYPES.CASH,
-      amount: 0,
-      reason: '通常現金マスタ',
-      memo: normalizeString_(cashMap[matchId]['理由・メモ'])
+      type: APP.HISTORY_TYPES.ADJUSTMENT_ADD,
+      targetId: id,
+      targetName: name,
+      before: null,
+      after: row,
+      memo: APP.ADJUSTMENT_TYPES.CASH
     });
   });
+
+  if (!newRows.length) return 0;
+  var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.ADJUSTMENT, APP.HEADERS.ADJUSTMENT);
+  appendSheetObjectsFast_(sheet, APP.HEADERS.ADJUSTMENT, newRows);
+  appendHistoryBatch_(historyEntries);
+  // refresh は呼び出し側（取込の最後）で1回だけ行う
+  return newRows.length;
 }
 
 function removeAdjustmentByType_(targetMonth, matchId, type, skipRefresh) {

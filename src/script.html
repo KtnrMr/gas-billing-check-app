@@ -1,6 +1,6 @@
 <script>
 (function() {
-  var UI_BUILD = '0.4.8';
+  var UI_BUILD = '0.6.0';
   var state = {
     targetMonth: '',
     month: null,
@@ -10,6 +10,7 @@
     inputTargets: [],
     reconcile: [],
     history: [],
+    archiveAdmin: null,
     nameConfirmed: [],
     currentListTab: '入力対象',
     editable: true,
@@ -215,7 +216,7 @@
     ];
     wrap.innerHTML = cards.map(function(card) {
       return '<div class="summary-card"><div class="label">' + card[0] +
-        '</div><div class="value">' + card[1] + '</div><div class="sub">' + card[2] + '</div></div>';
+        '</div><div class="value">' + card[1] + '</div><div class="amount">' + card[2] + '</div></div>';
     }).join('');
   }
 
@@ -254,9 +255,56 @@
   }
 
   function toHiraganaForSearchClient_(value) {
-    return normalizeDisplayText_(value).replace(/[ァ-ヶ]/g, function(ch) {
+    var text = normalizeDisplayText_(value);
+    var map = {
+      'ｱ': 'あ', 'ｲ': 'い', 'ｳ': 'う', 'ｴ': 'え', 'ｵ': 'お',
+      'ｶ': 'か', 'ｷ': 'き', 'ｸ': 'く', 'ｹ': 'け', 'ｺ': 'こ',
+      'ｻ': 'さ', 'ｼ': 'し', 'ｽ': 'す', 'ｾ': 'せ', 'ｿ': 'そ',
+      'ﾀ': 'た', 'ﾁ': 'ち', 'ﾂ': 'つ', 'ﾃ': 'て', 'ﾄ': 'と',
+      'ﾅ': 'な', 'ﾆ': 'に', 'ﾇ': 'ぬ', 'ﾈ': 'ね', 'ﾉ': 'の',
+      'ﾊ': 'は', 'ﾋ': 'ひ', 'ﾌ': 'ふ', 'ﾍ': 'へ', 'ﾎ': 'ほ',
+      'ﾏ': 'ま', 'ﾐ': 'み', 'ﾑ': 'む', 'ﾒ': 'め', 'ﾓ': 'も',
+      'ﾔ': 'や', 'ﾕ': 'ゆ', 'ﾖ': 'よ',
+      'ﾗ': 'ら', 'ﾘ': 'り', 'ﾙ': 'る', 'ﾚ': 'れ', 'ﾛ': 'ろ',
+      'ﾜ': 'わ', 'ｦ': 'を', 'ﾝ': 'ん',
+      'ｧ': 'ぁ', 'ｨ': 'ぃ', 'ｩ': 'ぅ', 'ｪ': 'ぇ', 'ｫ': 'ぉ',
+      'ｬ': 'ゃ', 'ｭ': 'ゅ', 'ｮ': 'ょ', 'ｯ': 'っ', 'ｰ': 'ー',
+      'ｳﾞ': 'ゔ',
+      'ｶﾞ': 'が', 'ｷﾞ': 'ぎ', 'ｸﾞ': 'ぐ', 'ｹﾞ': 'げ', 'ｺﾞ': 'ご',
+      'ｻﾞ': 'ざ', 'ｼﾞ': 'じ', 'ｽﾞ': 'ず', 'ｾﾞ': 'ぜ', 'ｿﾞ': 'ぞ',
+      'ﾀﾞ': 'だ', 'ﾁﾞ': 'ぢ', 'ﾂﾞ': 'づ', 'ﾃﾞ': 'で', 'ﾄﾞ': 'ど',
+      'ﾊﾞ': 'ば', 'ﾋﾞ': 'び', 'ﾌﾞ': 'ぶ', 'ﾍﾞ': 'べ', 'ﾎﾞ': 'ぼ',
+      'ﾊﾟ': 'ぱ', 'ﾋﾟ': 'ぴ', 'ﾌﾟ': 'ぷ', 'ﾍﾟ': 'ぺ', 'ﾎﾟ': 'ぽ'
+    };
+    text = text.replace(/([\uff66-\uff9d])([\uff9e\uff9f])?/g, function(match) {
+      return map[match] || match;
+    });
+    return text.replace(/[ァ-ヶ]/g, function(ch) {
       return String.fromCharCode(ch.charCodeAt(0) - 0x60);
     }).toLowerCase();
+  }
+
+  function formatDateTimeDisplayClient_(value) {
+    var text = String(value == null ? '' : value).trim();
+    if (!text) return '';
+    var match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+    if (match) return match[1] + ' ' + match[2];
+    if (/^\d{4}-\d{2}-\d{2}T/.test(text) && text.slice(-1) === 'Z') {
+      var d = new Date(text);
+      if (!isNaN(d.getTime())) {
+        function pad(n) { return ('0' + n).slice(-2); }
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      }
+    }
+    return text;
+  }
+
+  function formatNowLocalClient_() {
+    var d = new Date();
+    function pad(n) { return ('0' + n).slice(-2); }
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
   function normalizeIdForMatchClient_(value) {
@@ -449,7 +497,13 @@
       '<td>' + formatYen(s.eshuTotal) + '</td>',
       '<td>' + amountJudge + '</td>',
       '<td>' + (s.amountMatch ? '0円' : formatYen(s.amountDiff)) + '</td>',
-      '</tr></tbody></table>'
+      '</tr>',
+      (s.extraInputCount
+        ? '<tr><td class="label-cell">余計な入力</td><td>—</td><td>' +
+          s.extraInputCount + '件 / ' + formatYen(s.extraInputTotal || 0) +
+          '</td><td><span class="reconcile-summary-ng">要確認</span></td><td></td></tr>'
+        : ''),
+      '</tbody></table>'
     ].join('');
   }
 
@@ -463,6 +517,7 @@
   }
 
   function reconcileJudgmentRank_(judgment) {
+    if (judgment === '余計な入力') return 0;
     if (judgment === '金額不一致') return 1;
     if (judgment === '未入力') return 2;
     if (judgment === '氏名注意') return 3;
@@ -509,6 +564,7 @@
     if (judgment === 'OK') return '';
     if (judgment === '氏名注意') return 'row-reconcile-warn';
     if (judgment === '未入力') return 'row-reconcile-not-input';
+    if (judgment === '余計な入力') return 'row-reconcile-extra';
     return 'row-reconcile-mismatch';
   }
 
@@ -527,6 +583,7 @@
         var cls = r['判定'] === 'OK' ? 'judgment-ok' : (r['判定'] === '氏名注意' ? 'judgment-warn' : 'judgment-error');
         return '<span class="' + cls + '">' + r['判定'] + '</span>';
       } },
+      { key: '備考', label: '備考' },
       { key: 'actions', label: '操作', render: function(r) {
         if (r['判定'] !== '氏名注意' || !isEditable()) return '';
         return '<button type="button" data-confirm-name="' + r['照合用ID'] + '">氏名確認済み</button>';
@@ -1153,6 +1210,19 @@
   }
 
   function renderCashMasterTable() {
+    var rows = state.cashMaster.filter(function(row) {
+      return row['通常現金'];
+    }).slice().sort(function(a, b) {
+      return compareByKanaNameClient_({
+        kana: a.kana || '',
+        name: a['氏名'] || a.name || ''
+      }, {
+        kana: b.kana || '',
+        name: b['氏名'] || b.name || ''
+      });
+    });
+    var countEl = $('cash-master-count');
+    if (countEl) countEl.textContent = '（' + rows.length + '件）';
     renderTable('cash-master-table-wrap', [
       { key: '照合用ID', label: 'ID' },
       { key: '氏名', label: '氏名' },
@@ -1161,9 +1231,7 @@
         if (!isEditable()) return '';
         return '<button type="button" data-unregister-cash="' + r['照合用ID'] + '">解除</button>';
       } }
-    ], state.cashMaster.filter(function(row) {
-      return row['通常現金'];
-    }));
+    ], rows);
     var wrap = $('cash-master-table-wrap');
     if (!wrap) return;
     wrap.querySelectorAll('[data-unregister-cash]').forEach(function(button) {
@@ -1197,9 +1265,10 @@
     var completeMarkId = state.month ? state.month.completeMarkId : '';
     renderTable('eshu-input-table-wrap', [
       { key: 'mark', label: '目印', render: function(r) {
-        if (r.matchId === lastCopyId) return '最新コピー';
-        if (r.matchId === completeMarkId) return 'ここまで完了';
-        return '';
+        var marks = [];
+        if (r.matchId === lastCopyId) marks.push('最新コピー');
+        if (r.matchId === completeMarkId) marks.push('ここまで完了');
+        return marks.join(' / ');
       } },
       { key: 'rawId', label: '顧客番号' },
       { key: 'name', label: '氏名' },
@@ -1213,11 +1282,14 @@
         return html;
       } }
     ], rows, function(r) {
-      var cls = '';
-      if (r.matchId === lastCopyId) cls = 'row-latest-copy';
-      else if (r.matchId === completeMarkId) cls = 'row-complete-mark';
-      else if (r.isMonthlyStop) cls = 'row-monthly-stop';
-      return cls;
+      var classes = [];
+      var isLatest = r.matchId === lastCopyId;
+      var isComplete = r.matchId === completeMarkId;
+      if (isLatest && isComplete) classes.push('row-latest-and-complete');
+      else if (isLatest) classes.push('row-latest-copy');
+      else if (isComplete) classes.push('row-complete-mark');
+      if (r.isMonthlyStop) classes.push('row-monthly-stop');
+      return classes.join(' ');
     }, 'matchId');
   }
 
@@ -1244,7 +1316,7 @@
         var amount = button.getAttribute('data-copy-value');
         mergeWorkState({
           lastCopyId: matchId,
-          lastCopyAt: new Date().toISOString(),
+          lastCopyAt: formatNowLocalClient_(),
           lastCopyAmount: amount
         });
         updateLastCopyInfo();
@@ -1281,12 +1353,19 @@
     var info = '最後にコピー：なし';
     if (state.month && state.month.lastCopyId) {
       info = '最後にコピー：' + state.month.lastCopyId + ' / ' +
-        formatYen(state.month.lastCopyAmount) + ' / ' + (state.month.lastCopyAt || '');
+        formatYen(state.month.lastCopyAmount) + ' / ' +
+        formatDateTimeDisplayClient_(state.month.lastCopyAt || '');
     }
     $('last-copy-info').textContent = info;
   }
 
   function renderHistoryTable() {
+    var rows = (state.history || []).map(function(row) {
+      var copy = {};
+      Object.keys(row || {}).forEach(function(key) { copy[key] = row[key]; });
+      copy['日時'] = formatDateTimeDisplayClient_(row['日時']);
+      return copy;
+    });
     renderTable('history-table-wrap', [
       { key: '日時', label: '日時' },
       { key: '操作者', label: '操作者' },
@@ -1294,7 +1373,81 @@
       { key: '対象ID', label: '対象ID' },
       { key: '対象氏名', label: '対象氏名' },
       { key: 'メモ', label: 'メモ' }
-    ], state.history);
+    ], rows);
+  }
+
+  function renderArchiveAdmin(data) {
+    var wrap = $('archive-admin-wrap');
+    if (!wrap) return;
+    state.archiveAdmin = data || state.archiveAdmin;
+    var admin = state.archiveAdmin;
+    if (!admin) {
+      wrap.innerHTML = '<div class="panel">アーカイブ情報を読み込み中...</div>';
+      return;
+    }
+    var active = admin.active;
+    var history = admin.history || [];
+    var targets = admin.archiveTargets || [];
+    var activeHtml = active
+      ? '<div class="archive-card">' +
+        '<div class="archive-section-title">使用中</div>' +
+        '<div class="archive-meta"><span class="archive-meta-label">対象年</span><strong>' +
+        escapeHtml_(active.label) + '</strong></div>' +
+        '<div class="archive-meta"><span class="archive-meta-label">期間</span>' +
+        escapeHtml_(active.startDate) + ' 〜 ' + escapeHtml_(active.endDate) + '</div>' +
+        '</div>'
+      : '<div class="panel">使用中のアーカイブ設定がありません。</div>';
+
+    var historyHtml = history.length
+      ? '<ul class="archive-history-list">' + history.map(function(item) {
+        return '<li><strong>' + escapeHtml_(item.label) + '年</strong> / '
+          + escapeHtml_(item.startDate) + ' 〜 ' + escapeHtml_(item.endDate)
+          + (item.note ? ' / ' + escapeHtml_(item.note) : '') + '</li>';
+      }).join('') + '</ul>'
+      : '<div class="empty-message">過去アーカイブはまだありません。</div>';
+
+    wrap.innerHTML =
+      activeHtml +
+      '<div class="archive-card">' +
+      '<div class="archive-section-title">年次アーカイブ作成</div>' +
+      '<p class="archive-help">対象年のデータを <code>シート名_YYYY</code> に移し、使用中年を翌年へ進めます。</p>' +
+      '<p class="archive-help">対象シート: ' + escapeHtml_(targets.join('、')) + '</p>' +
+      '<button id="archive-create-button" class="primary"' + (active ? '' : ' disabled') +
+      '>アーカイブ作成</button>' +
+      '</div>' +
+      '<div class="archive-card">' +
+      '<div class="archive-section-title">過去アーカイブ一覧</div>' +
+      historyHtml +
+      '</div>';
+
+    var button = $('archive-create-button');
+    if (button) {
+      button.addEventListener('click', createYearArchiveFromUi);
+    }
+  }
+
+  function loadArchiveAdmin() {
+    return runServer('getArchiveAdminData').then(function(data) {
+      renderArchiveAdmin(data);
+    }).catch(handleImportError);
+  }
+
+  function createYearArchiveFromUi() {
+    var admin = state.archiveAdmin;
+    var year = admin && admin.active ? admin.active.label : '';
+    if (!year) {
+      showMessage('使用中のアーカイブ設定がありません。', 'error');
+      return;
+    }
+    if (!confirm(year + '年の記録をアーカイブします。\n\n'
+      + '対象年のデータは シート名_' + year + ' へ移動します。\nよろしいですか？')) {
+      return;
+    }
+    runServer('createYearArchive', { year: year }).then(function(result) {
+      showMessage((result && result.message) || 'アーカイブを作成しました。', 'success');
+      if (result && result.adminData) renderArchiveAdmin(result.adminData);
+      else return loadArchiveAdmin();
+    }).catch(handleImportError);
   }
 
   function copyText(text) {
@@ -1466,6 +1619,7 @@
     }
     if (name === 'cash-master') renderCashMasterTable();
     if (name === 'confirm') renderHistoryTable();
+    if (name === 'archive') loadArchiveAdmin();
   }
 
   function initNav() {
@@ -1511,24 +1665,24 @@
 
     return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>' + escapeHtml_(title) + '</title>' +
       '<style>' +
-      'body{font-family:"Hiragino Sans","Yu Gothic UI",sans-serif;color:#111827;margin:24px;font-size:12px;}' +
-      'h1{font-size:20px;margin:0 0 16px;}' +
+      'body{font-family:"Hiragino Sans","Yu Gothic UI",sans-serif;color:#111827;margin:24px;font-size:13.5px;}' +
+      'h1{font-size:22px;margin:0 0 16px;}' +
       '.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;}' +
-      '.summary-box{border:1px solid #d1d5db;border-radius:6px;padding:10px;background:#f9fafb;}' +
-      '.summary-box .label{font-size:11px;color:#6b7280;}' +
-      '.summary-box .value{font-size:16px;font-weight:700;margin-top:4px;}' +
-      '.summary-box .sub{font-size:11px;color:#374151;margin-top:2px;}' +
+      '.summary-box{border:1.5px solid #6b7280;border-radius:6px;padding:10px;background:#f9fafb;}' +
+      '.summary-box .label{font-size:12px;color:#4b5563;}' +
+      '.summary-box .value{font-size:17px;font-weight:700;margin-top:4px;}' +
+      '.summary-box .sub{font-size:12px;color:#374151;margin-top:2px;}' +
       '.print-section{margin-bottom:14px;}' +
-      '.print-section h2{font-size:14px;margin:0 0 8px;border-left:4px solid #2563eb;padding-left:8px;' +
+      '.print-section h2{font-size:15px;margin:0 0 8px;border-left:4px solid #2563eb;padding-left:8px;' +
       'break-after:avoid-page;page-break-after:avoid;}' +
       '.print-section table{break-before:avoid-page;page-break-before:avoid;}' +
       'table{width:100%;border-collapse:collapse;table-layout:fixed;}' +
-      'th,td{border:1px solid #d1d5db;padding:6px 8px;text-align:left;vertical-align:top;}' +
-      'th{background:#eef2ff;font-size:11px;}' +
+      'th,td{border:1.5px solid #6b7280;padding:3px 7px;text-align:left;vertical-align:top;line-height:1.25;}' +
+      'th{background:#eef2ff;font-size:12.5px;}' +
       'thead{display:table-header-group;}' +
       'tr{break-inside:avoid-page;page-break-inside:avoid;}' +
       '.id-col{width:10%;}.name-col{width:22%;}.amount-col{width:28%;}.memo-col{width:40%;}' +
-      '.amount-text,.memo-text{display:block;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.45;}' +
+      '.amount-text,.memo-text{display:block;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.3;}' +
       '.empty-cell{text-align:center;color:#6b7280;}' +
       '@media print{body{margin:12mm;} .no-print{display:none;} .print-section{break-inside:auto;page-break-inside:auto;}}' +
       '</style></head><body>' +
@@ -1641,6 +1795,19 @@
         }
         showMessage('ほのぼの ' + result.count + '件を取込しました。', 'success');
         invalidateMonthCache();
+        if (result.month) state.month = result.month;
+        if (result.dashboard) {
+          state.dashboard = result.dashboard;
+          renderSummary();
+        }
+        if (result.honobonoBilling) {
+          state.loadedScreens.honobono = state.targetMonth;
+          state.honobonoBilling = result.honobonoBilling;
+          resetHonobonoDraftFromServer(result.honobonoBilling);
+          renderFromState();
+          renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+          return null;
+        }
         return reloadMonthSnapshot().then(function() {
           renderHonobonoBillingTable(true);
         });
@@ -1696,11 +1863,8 @@
   }
 
   function warmMasterCacheIfNeeded() {
-    runServerSilent('getMasterUserCacheStatus').then(function(status) {
-      if (status && !status.hasCache) {
-        runServerSilent('ensureMasterUserCache').catch(function() {});
-      }
-    }).catch(function() {});
+    // 1日1回まで。起動は待たせず裏で同期
+    runServerSilent('syncMasterUserCacheIfStale').catch(function() {});
   }
 
   function init() {

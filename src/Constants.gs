@@ -1,5 +1,5 @@
 var APP = Object.freeze({
-  VERSION: '0.4.8',
+  VERSION: '0.6.0',
   MONTHLY_STOP_LABEL: '当月停止',
   LEGACY_HOLD_LABEL: '請求保留',
   TIMEZONE: 'Asia/Tokyo',
@@ -34,8 +34,20 @@ var APP = Object.freeze({
     SETTINGS: '設定',
     MASTER_CACHE: '利用者マスタキャッシュ',
     BILLING_CACHE: '請求計算キャッシュ',
-    BILLING_MEMO: '請求整理メモ'
+    BILLING_MEMO: '請求整理メモ',
+    ARCHIVE_SETTING: 'アーカイブ設定'
   },
+  /** 年次アーカイブ対象（同一SS内に シート名_YYYY を作成） */
+  ARCHIVE_TARGETS: [
+    { sheetKey: 'MONTH', headerKey: 'MONTH', monthHeader: '対象月' },
+    { sheetKey: 'HONOBONO', headerKey: 'HONOBONO', monthHeader: '対象月' },
+    { sheetKey: 'ESHU', headerKey: 'ESHU', monthHeader: '対象月' },
+    { sheetKey: 'RECONCILE', headerKey: 'RECONCILE', monthHeader: '対象月' },
+    { sheetKey: 'HISTORY', headerKey: 'HISTORY', monthHeader: '対象月' },
+    { sheetKey: 'ADJUSTMENT', headerKey: 'ADJUSTMENT', monthHeader: '対象月' },
+    { sheetKey: 'BILLING_CACHE', headerKey: 'BILLING_CACHE', monthHeader: '対象月' },
+    { sheetKey: 'BILLING_MEMO', headerKey: 'BILLING_MEMO', monthHeader: '対象月' }
+  ],
   MONTH_STATUS: {
     WORKING: '作業中',
     RECONCILED: '照合済',
@@ -93,13 +105,16 @@ var APP = Object.freeze({
       '基本情報氏名', 'マスタ区分', '請求金額', '取込判定', '備考'
     ],
     RECONCILE: [
-      '対象月', '照合日時', '照合用ID', '基本情報氏名', 'ほのぼの氏名', 'e集ちゃん氏名',
+      '対象月', '照合日時', '照合用ID', '基本情報氏名', 'フリガナ', 'ほのぼの氏名', 'e集ちゃん氏名',
       '請求状態', 'ほのぼの請求額', '追加請求額', '最終請求額', 'e集ちゃん請求金額', '差額',
       '判定', '備考'
     ],
     HISTORY: [
       '履歴ID', '日時', '操作者', '対象月', '操作種別', '対象ID', '対象氏名',
       '変更前', '変更後', 'メモ'
+    ],
+    ARCHIVE_SETTING: [
+      '表示名', '開始日', '終了日', '使用中', '並び順', '備考'
     ],
     SETTINGS: ['設定キー', '設定値', '説明'],
     NAME_CONFIRMED: [

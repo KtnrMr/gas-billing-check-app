@@ -23,6 +23,7 @@
         <button class="nav-item" data-screen="eshu-input">e集ちゃん入力</button>
         <button class="nav-item" data-screen="eshu-import">e集ちゃん照合</button>
         <button class="nav-item" data-screen="confirm">確定</button>
+        <button class="nav-item" data-screen="archive">アーカイブ</button>
       </nav>
       <div id="month-status" class="month-status">未読込</div>
     </aside>
@@ -75,7 +76,7 @@
           </label>
         </div>
         <div id="cash-search-candidates" class="search-candidates" hidden></div>
-        <h3 class="section-title">登録済み一覧</h3>
+        <h3 class="section-title">登録済み一覧 <span id="cash-master-count" class="section-count"></span></h3>
         <div id="cash-master-table-wrap" class="table-wrap"></div>
       </section>
 
@@ -130,6 +131,14 @@
           <button id="unconfirm-button">確定解除</button>
         </div>
         <div id="history-table-wrap" class="table-wrap"></div>
+      </section>
+
+      <section id="screen-archive" class="screen" hidden>
+        <header class="screen-header">
+          <h2>年次アーカイブ</h2>
+          <p>使用中年の請求データを同一スプレッドシート内のアーカイブシートへ移します。</p>
+        </header>
+        <div id="archive-admin-wrap" class="archive-admin-wrap"></div>
       </section>
     </main>
   </div>

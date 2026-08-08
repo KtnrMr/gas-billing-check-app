@@ -11,6 +11,11 @@ function include(filename) {
 
 function bootstrapApp() {
   validateConfig_();
+  try {
+    ensureArchiveSettingInitialized_();
+  } catch (e) {
+    Logger.log('[bootstrap] archive init: ' + e.message);
+  }
   return {
     version: APP.VERSION,
     masterCache: getMasterUserCacheStatus()

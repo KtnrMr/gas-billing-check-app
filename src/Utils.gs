@@ -5,9 +5,48 @@ function normalizeString_(value) {
 function toHiraganaForSearch_(value) {
   var text = normalizeString_(value);
   if (!text) return '';
+  text = convertHalfWidthKatakanaToHiragana_(text);
   return text.replace(/[ァ-ヶ]/g, function(ch) {
     return String.fromCharCode(ch.charCodeAt(0) - 0x60);
   }).toLowerCase();
+}
+
+/** 半角カタカナ（濁点・半濁点付き）をひらがなへ */
+function convertHalfWidthKatakanaToHiragana_(text) {
+  var map = {
+    'ｱ': 'あ', 'ｲ': 'い', 'ｳ': 'う', 'ｴ': 'え', 'ｵ': 'お',
+    'ｶ': 'か', 'ｷ': 'き', 'ｸ': 'く', 'ｹ': 'け', 'ｺ': 'こ',
+    'ｻ': 'さ', 'ｼ': 'し', 'ｽ': 'す', 'ｾ': 'せ', 'ｿ': 'そ',
+    'ﾀ': 'た', 'ﾁ': 'ち', 'ﾂ': 'つ', 'ﾃ': 'て', 'ﾄ': 'と',
+    'ﾅ': 'な', 'ﾆ': 'に', 'ﾇ': 'ぬ', 'ﾈ': 'ね', 'ﾉ': 'の',
+    'ﾊ': 'は', 'ﾋ': 'ひ', 'ﾌ': 'ふ', 'ﾍ': 'へ', 'ﾎ': 'ほ',
+    'ﾏ': 'ま', 'ﾐ': 'み', 'ﾑ': 'む', 'ﾒ': 'め', 'ﾓ': 'も',
+    'ﾔ': 'や', 'ﾕ': 'ゆ', 'ﾖ': 'よ',
+    'ﾗ': 'ら', 'ﾘ': 'り', 'ﾙ': 'る', 'ﾚ': 'れ', 'ﾛ': 'ろ',
+    'ﾜ': 'わ', 'ｦ': 'を', 'ﾝ': 'ん',
+    'ｧ': 'ぁ', 'ｨ': 'ぃ', 'ｩ': 'ぅ', 'ｪ': 'ぇ', 'ｫ': 'ぉ',
+    'ｬ': 'ゃ', 'ｭ': 'ゅ', 'ｮ': 'ょ', 'ｯ': 'っ', 'ｰ': 'ー',
+    'ｳﾞ': 'ゔ',
+    'ｶﾞ': 'が', 'ｷﾞ': 'ぎ', 'ｸﾞ': 'ぐ', 'ｹﾞ': 'げ', 'ｺﾞ': 'ご',
+    'ｻﾞ': 'ざ', 'ｼﾞ': 'じ', 'ｽﾞ': 'ず', 'ｾﾞ': 'ぜ', 'ｿﾞ': 'ぞ',
+    'ﾀﾞ': 'だ', 'ﾁﾞ': 'ぢ', 'ﾂﾞ': 'づ', 'ﾃﾞ': 'で', 'ﾄﾞ': 'ど',
+    'ﾊﾞ': 'ば', 'ﾋﾞ': 'び', 'ﾌﾞ': 'ぶ', 'ﾍﾞ': 'べ', 'ﾎﾞ': 'ぼ',
+    'ﾊﾟ': 'ぱ', 'ﾋﾟ': 'ぴ', 'ﾌﾟ': 'ぷ', 'ﾍﾟ': 'ぺ', 'ﾎﾟ': 'ぽ'
+  };
+  return String(text || '').replace(/([\uff66-\uff9d])([\uff9e\uff9f])?/g, function(match) {
+    return map[match] || match;
+  });
+}
+
+function formatDateTimeDisplay_(value) {
+  var text = normalizeString_(value);
+  if (!text) return '';
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, APP.TIMEZONE, 'yyyy-MM-dd HH:mm');
+  }
+  var match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?/);
+  if (match) return match[1] + ' ' + match[2];
+  return text;
 }
 
 function normalizeIdForMatch_(value) {

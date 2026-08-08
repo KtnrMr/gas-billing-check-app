@@ -144,9 +144,16 @@ function getMasterUserCacheStatus() {
   };
 }
 
-function ensureMasterUserCache_() {
+function isMasterCacheSyncedToday_() {
+  var syncedAt = normalizeString_(getAppSettings_().MASTER_CACHE_SYNCED_AT);
+  if (!syncedAt) return false;
+  var today = Utilities.formatDate(new Date(), APP.TIMEZONE, 'yyyy-MM-dd');
+  return syncedAt.indexOf(today) === 0;
+}
+
+function syncMasterUserCacheIfStale_() {
   var status = getMasterUserCacheStatus();
-  if (status.hasCache) {
+  if (status.hasCache && isMasterCacheSyncedToday_()) {
     return {
       success: true,
       hasCache: true,
@@ -163,6 +170,25 @@ function ensureMasterUserCache_() {
     count: result.count,
     syncedAt: result.syncedAt
   };
+}
+
+function syncMasterUserCacheIfStale() {
+  validateConfig_();
+  return withScriptLock_(function() {
+    return syncMasterUserCacheIfStale_();
+  });
+}
+
+function ensureMasterUserCache_() {
+  return syncMasterUserCacheIfStale_();
+}
+
+function warmMasterUserCacheInBackground_() {
+  try {
+    syncMasterUserCacheIfStale_();
+  } catch (e) {
+    Logger.log('[master-cache] warm failed: ' + e.message);
+  }
 }
 
 function ensureMasterUserCache() {
@@ -182,15 +208,6 @@ function syncMasterUserCache() {
       syncedAt: result.syncedAt
     };
   });
-}
-
-function warmMasterUserCacheInBackground_() {
-  try {
-    if (getMasterUserCacheStatus().hasCache) return;
-    syncMasterUserCache_();
-  } catch (e) {
-    Logger.log('[master-cache] warm failed: ' + e.message);
-  }
 }
 
 function lookupMasterUser_(users, matchId) {

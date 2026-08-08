@@ -71,19 +71,27 @@ function buildHonobonoDisplaySummary_(records, honobono) {
 function buildReconcileComparisonSummaryFromData_(records, eshu) {
   var billingCount = 0;
   var billingTotal = 0;
+  var reconcileTargetIds = {};
   (records || []).forEach(function(record) {
     if (!record.isReconcileTarget || record.isMonthlyStop) return;
+    reconcileTargetIds[record.matchId] = true;
     billingCount += 1;
     billingTotal += record.finalAmount;
   });
 
   var eshuCount = 0;
   var eshuTotal = 0;
+  var extraInputCount = 0;
+  var extraInputTotal = 0;
   Object.keys((eshu && eshu.rows) || {}).forEach(function(matchId) {
     var row = eshu.rows[matchId];
     if (row.monthlyStop) return;
     eshuCount += 1;
     eshuTotal += row.amount;
+    if (!reconcileTargetIds[matchId]) {
+      extraInputCount += 1;
+      extraInputTotal += row.amount;
+    }
   });
 
   return {
@@ -91,6 +99,8 @@ function buildReconcileComparisonSummaryFromData_(records, eshu) {
     billingTotal: billingTotal,
     eshuCount: eshuCount,
     eshuTotal: eshuTotal,
+    extraInputCount: extraInputCount,
+    extraInputTotal: extraInputTotal,
     countMatch: billingCount === eshuCount,
     amountMatch: billingTotal === eshuTotal,
     countDiff: eshuCount - billingCount,

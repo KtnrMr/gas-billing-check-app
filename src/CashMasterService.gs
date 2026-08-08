@@ -2,8 +2,16 @@ function getCashMasterList() {
   validateConfig_();
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.CASH_MASTER);
   if (!sheet) return [];
-  return readSheetObjects_(sheet).sort(function(a, b) {
-    return normalizeString_(a['氏名']).localeCompare(normalizeString_(b['氏名']), 'ja');
+  var users = loadMasterUsers_();
+  return readSheetObjects_(sheet).map(function(row) {
+    var matchId = normalizeIdForMatch_(row['照合用ID']);
+    var master = matchId ? lookupMasterUser_(users, matchId) : null;
+    row.kana = master ? (master.kana || '') : '';
+    row.matchId = matchId;
+    row.name = normalizeString_(row['氏名']);
+    return row;
+  }).sort(function(a, b) {
+    return compareByKanaName_(a, b);
   });
 }
 

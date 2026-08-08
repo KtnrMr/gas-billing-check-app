@@ -148,16 +148,15 @@ function buildImportRow_(type, targetMonth, batch, lineNo, rawId, users, amountR
   });
 }
 
-function computeImportDiff_(targetMonth, previousBatch, newBatch) {
-  if (!previousBatch) return null;
+function computeImportDiffFromRowSets_(oldRows, newRows) {
   var oldMap = {};
-  getHonobonoImportRows_(targetMonth, previousBatch).forEach(function(row) {
+  (oldRows || []).forEach(function(row) {
     var id = normalizeIdForMatch_(row['照合用ID']);
     if (!id) return;
     oldMap[id] = Number(row['請求額']) || 0;
   });
   var newMap = {};
-  getHonobonoImportRows_(targetMonth, newBatch).forEach(function(row) {
+  (newRows || []).forEach(function(row) {
     var id = normalizeIdForMatch_(row['照合用ID']);
     if (!id) return;
     newMap[id] = Number(row['請求額']) || 0;
@@ -177,6 +176,34 @@ function computeImportDiff_(targetMonth, previousBatch, newBatch) {
   return { removed: removed, added: added, changed: changed };
 }
 
+function computeImportDiff_(targetMonth, previousBatch, newBatch) {
+  if (!previousBatch) return null;
+  return computeImportDiffFromRowSets_(
+    getHonobonoImportRows_(targetMonth, previousBatch),
+    getHonobonoImportRows_(targetMonth, newBatch)
+  );
+}
+
+function buildEshuMapFromImportRows_(importRows, batch) {
+  var map = {};
+  (importRows || []).forEach(function(row) {
+    var matchId = normalizeIdForMatch_(row['照合用ID']);
+    if (!matchId) return;
+    var parsed = parseStoredEshuAmount_(row['請求金額']);
+    map[matchId] = {
+      matchId: matchId,
+      rawId: normalizeString_(row['顧客番号']),
+      name: normalizeString_(row['顧客名']),
+      masterName: normalizeString_(row['基本情報氏名']),
+      amount: parsed.amount,
+      monthlyStop: parsed.monthlyStop,
+      amountDisplay: parsed.display,
+      judgment: normalizeString_(row['取込判定'])
+    };
+  });
+  return { batch: batch || 0, rows: map, list: importRows || [] };
+}
+
 function importHonobonoCsv(targetMonth, csvPayload) {
   validateConfig_();
   return withScriptLock_(function() {
@@ -185,6 +212,9 @@ function importHonobonoCsv(targetMonth, csvPayload) {
       if (!month) throw new Error('対象月が不正です。画面上部の対象月（YYYY-MM）を選択してください。');
       assertMonthEditable_(month);
       getOrCreateMonthNoLock_(month);
+
+      var cacheSync = syncMasterUserCacheIfStale_();
+      perf.mark('syncMasterUserCacheIfStale');
 
       var csvText = resolveCsvPayload_(csvPayload);
       var rows = parseCsvRows_(csvText);
@@ -200,8 +230,16 @@ function importHonobonoCsv(targetMonth, csvPayload) {
 
       var users = loadMasterUsers_();
       perf.mark('loadMasterUsers');
-      var previousBatch = getLatestImportBatch_(month, APP.SHEETS.HONOBONO);
+
+      var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.HONOBONO, APP.HEADERS.HONOBONO);
+      var existingRows = readSheetObjects_(sheet);
+      var previousBatch = getLatestImportBatchFromRows_(month, existingRows);
       var batch = previousBatch + 1;
+      var previousBatchRows = previousBatch
+        ? getHonobonoImportRows_(month, previousBatch, existingRows)
+        : [];
+      perf.mark('read existing honobono');
+
       var importRows = [];
       var lineNo = 0;
       rows.slice(header.index + 1).forEach(function(values) {
@@ -224,15 +262,14 @@ function importHonobonoCsv(targetMonth, csvPayload) {
       perf.mark('build import rows');
       if (!importRows.length) throw new Error('取込可能なデータがありません。');
 
-      var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.HONOBONO, APP.HEADERS.HONOBONO);
-      appendSheetObjects_(sheet, APP.HEADERS.HONOBONO, importRows);
+      appendSheetObjectsFast_(sheet, APP.HEADERS.HONOBONO, importRows);
       perf.mark('append honobono sheet');
 
       var matchIds = importRows.map(function(row) {
         return normalizeIdForMatch_(row['照合用ID']);
       }).filter(Boolean);
-      ensureCashAdjustmentsFromMaster_(month, matchIds);
-      perf.mark('ensureCashAdjustmentsFromMaster');
+      var cashCreated = ensureCashAdjustmentsFromMaster_(month, matchIds);
+      perf.mark('ensureCashAdjustmentsFromMaster (' + cashCreated + ')');
 
       updateMonthRow_(month, {
         'ほのぼの取込日時': formatDateTime_(new Date()),
@@ -241,7 +278,9 @@ function importHonobonoCsv(targetMonth, csvPayload) {
       refreshMonthSummary_(month);
       perf.mark('refreshMonthSummary');
 
-      var diff = computeImportDiff_(month, previousBatch, batch);
+      var diff = previousBatch
+        ? computeImportDiffFromRowSets_(previousBatchRows, importRows)
+        : null;
       appendHistory_({
         targetMonth: month,
         type: APP.HISTORY_TYPES.HONOBONO_IMPORT,
@@ -253,11 +292,19 @@ function importHonobonoCsv(targetMonth, csvPayload) {
       });
       perf.mark('appendHistory');
 
+      var monthRow = getMonthRow_(month);
+      var billingList = getHonobonoBillingList(month);
+      perf.mark('build response lists');
+
       return {
         success: true,
         batch: batch,
         count: importRows.length,
-        diff: diff
+        diff: diff,
+        masterCacheSynced: !!(cacheSync && cacheSync.syncedNow),
+        month: buildMonthResponse_(monthRow),
+        dashboard: getBillingBreakdown(month),
+        honobonoBilling: billingList
       };
     });
   });
@@ -286,8 +333,13 @@ function importEshuCsv(targetMonth, csvPayload) {
 
       var users = loadMasterUsers_();
       perf.mark('loadMasterUsers');
-      var previousBatch = getLatestImportBatch_(month, APP.SHEETS.ESHU);
+
+      var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.ESHU, APP.HEADERS.ESHU);
+      var existingRows = readSheetObjects_(sheet);
+      var previousBatch = getLatestImportBatchFromRows_(month, existingRows);
       var batch = previousBatch + 1;
+      perf.mark('read existing eshu');
+
       var importRows = [];
       var lineNo = 0;
       rows.slice(header.index + 1).forEach(function(values) {
@@ -310,8 +362,7 @@ function importEshuCsv(targetMonth, csvPayload) {
       perf.mark('build import rows');
       if (!importRows.length) throw new Error('取込可能なデータがありません。');
 
-      var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.ESHU, APP.HEADERS.ESHU);
-      appendSheetObjects_(sheet, APP.HEADERS.ESHU, importRows);
+      appendSheetObjectsFast_(sheet, APP.HEADERS.ESHU, importRows);
       perf.mark('append eshu sheet');
 
       updateMonthRow_(month, {
@@ -324,7 +375,8 @@ function importEshuCsv(targetMonth, csvPayload) {
       });
       perf.mark('updateMonthRow');
 
-      var reconcileResult = runReconcileInternal_(month);
+      var eshuMap = buildEshuMapFromImportRows_(importRows, batch);
+      var reconcileResult = runReconcileInternal_(month, { eshuMap: eshuMap });
       perf.mark('runReconcileInternal');
 
       appendHistory_({
