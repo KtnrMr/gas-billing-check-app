@@ -164,7 +164,8 @@ function runReconcileInternal_(targetMonth, options) {
   });
 }
 
-function runReconcile(targetMonth) {
+function runReconcile(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     assertMonthEditable_(targetMonth);
@@ -182,7 +183,8 @@ function runReconcile(targetMonth) {
   });
 }
 
-function getReconcileResults(targetMonth) {
+function getReconcileResults(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.RECONCILE);
   if (!sheet) return [];

@@ -204,7 +204,8 @@ function buildEshuMapFromImportRows_(importRows, batch) {
   return { batch: batch || 0, rows: map, list: importRows || [] };
 }
 
-function importHonobonoCsv(targetMonth, csvPayload) {
+function importHonobonoCsv(token, targetMonth, csvPayload) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     return runWithPerfLog_('importHonobonoCsv', { month: targetMonth }, function(perf) {
@@ -293,7 +294,7 @@ function importHonobonoCsv(targetMonth, csvPayload) {
       perf.mark('appendHistory');
 
       var monthRow = getMonthRow_(month);
-      var billingList = getHonobonoBillingList(month);
+      var billingList = getHonobonoBillingList(token, month);
       perf.mark('build response lists');
 
       return {
@@ -303,14 +304,15 @@ function importHonobonoCsv(targetMonth, csvPayload) {
         diff: diff,
         masterCacheSynced: !!(cacheSync && cacheSync.syncedNow),
         month: buildMonthResponse_(monthRow),
-        dashboard: getBillingBreakdown(month),
+        dashboard: getBillingBreakdown_(month),
         honobonoBilling: billingList
       };
     });
   });
 }
 
-function importEshuCsv(targetMonth, csvPayload) {
+function importEshuCsv(token, targetMonth, csvPayload) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     return runWithPerfLog_('importEshuCsv', { month: targetMonth }, function(perf) {
@@ -406,7 +408,7 @@ function importEshuCsv(targetMonth, csvPayload) {
   });
 }
 
-function getHonobonoImports(targetMonth) {
+function getHonobonoImports_(targetMonth) {
   validateConfig_();
   var latest = getLatestHonobonoMap_(targetMonth);
   return {
@@ -417,7 +419,7 @@ function getHonobonoImports(targetMonth) {
   };
 }
 
-function getEshuImports(targetMonth) {
+function getEshuImports_(targetMonth) {
   validateConfig_();
   var latest = getLatestEshuMap_(targetMonth);
   return {

@@ -1,5 +1,11 @@
 <script>
 
+
+const LOGIN_ENABLED = false;
+function getAuthTokenOrThrow() {
+  return '';
+}
+
 function layoutSplashOrbit(el) {
   const svg = el.querySelector('.yg-splash-orbit');
   const path = el.querySelector('.yg-splash-orbit-path');
@@ -122,7 +128,7 @@ else startYgSplash();
         reject(new Error(missingMsg));
         return;
       }
-      runner[method].apply(runner, args);
+      runner[method].apply(runner, [getAuthTokenOrThrow()].concat(args));
     });
   }
 

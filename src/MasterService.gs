@@ -133,7 +133,7 @@ function loadMasterUsers_() {
   return masterUsersMemoryCache_;
 }
 
-function getMasterUserCacheStatus() {
+function getMasterUserCacheStatus_() {
   validateConfig_();
   var settings = getAppSettings_();
   var users = readMasterUsersFromCache_();
@@ -152,7 +152,7 @@ function isMasterCacheSyncedToday_() {
 }
 
 function syncMasterUserCacheIfStale_() {
-  var status = getMasterUserCacheStatus();
+  var status = getMasterUserCacheStatus_();
   if (status.hasCache && isMasterCacheSyncedToday_()) {
     return {
       success: true,
@@ -172,7 +172,8 @@ function syncMasterUserCacheIfStale_() {
   };
 }
 
-function syncMasterUserCacheIfStale() {
+function syncMasterUserCacheIfStale(token) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     return syncMasterUserCacheIfStale_();
@@ -191,14 +192,15 @@ function warmMasterUserCacheInBackground_() {
   }
 }
 
-function ensureMasterUserCache() {
+function ensureMasterUserCache(token) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     return ensureMasterUserCache_();
   });
 }
 
-function syncMasterUserCache() {
+function syncMasterUserCache_() {
   validateConfig_();
   return withScriptLock_(function() {
     var result = syncMasterUserCache_();
@@ -259,12 +261,14 @@ function searchMasterUsers_(query, options) {
   });
 }
 
-function searchMasterUsers(query, includeEnded) {
+function searchMasterUsers(token, query, includeEnded) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return searchMasterUsers_(query, { includeEnded: !!includeEnded, limit: 25 });
 }
 
-function searchActiveMasterUsers(query) {
+function searchActiveMasterUsers(token, query) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return searchMasterUsers_(query, { activeOnly: true, limit: 25 });
 }

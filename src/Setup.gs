@@ -1,4 +1,4 @@
-function setupApplicationSheets() {
+function setupApplicationSheets_() {
   validateConfig_();
   return withScriptLock_(function() {
     var ss = getBillingSpreadsheet_();

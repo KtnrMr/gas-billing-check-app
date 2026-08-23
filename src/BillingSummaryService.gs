@@ -108,7 +108,8 @@ function buildReconcileComparisonSummaryFromData_(records, eshu) {
   };
 }
 
-function getReconcileComparisonSummary(targetMonth) {
+function getReconcileComparisonSummary(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var month = normalizeYearMonth_(targetMonth);
   return buildReconcileComparisonSummaryFromData_(

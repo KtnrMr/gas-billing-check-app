@@ -28,7 +28,7 @@ function shouldShowNameWarningWithMap_(confirmedMap, matchId, nameA, nameB) {
   return !confirmedMap[normalizeIdForMatch_(matchId)];
 }
 
-function getNameConfirmedList() {
+function getNameConfirmedList_() {
   validateConfig_();
   return Object.keys(getNameConfirmedMap_()).map(function(key) {
     return getNameConfirmedMap_()[key];
@@ -37,7 +37,8 @@ function getNameConfirmedList() {
   });
 }
 
-function confirmNameWarning(matchId, memo, targetMonth) {
+function confirmNameWarning(token, matchId, memo, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     var id = normalizeIdForMatch_(matchId);
@@ -84,7 +85,7 @@ function confirmNameWarning(matchId, memo, targetMonth) {
   });
 }
 
-function removeNameConfirmation(matchId) {
+function removeNameConfirmation_(matchId) {
   validateConfig_();
   return withScriptLock_(function() {
     var id = normalizeIdForMatch_(matchId);

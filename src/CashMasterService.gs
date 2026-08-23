@@ -1,4 +1,5 @@
-function getCashMasterList() {
+function getCashMasterList(token) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.CASH_MASTER);
   if (!sheet) return [];
@@ -15,7 +16,7 @@ function getCashMasterList() {
   });
 }
 
-function saveCashMaster(payload) {
+function saveCashMaster_(payload) {
   validateConfig_();
   return withScriptLock_(function() {
     var ss = getBillingSpreadsheet_();
@@ -60,8 +61,9 @@ function saveCashMaster(payload) {
   });
 }
 
-function registerCashMaster(matchId, name) {
-  return saveCashMaster({
+function registerCashMaster(token, matchId, name) {
+  requirePermissionAccess_(token);
+  return saveCashMaster_({
     matchId: matchId,
     name: name || '',
     usuallyCash: true,
@@ -71,7 +73,8 @@ function registerCashMaster(matchId, name) {
   });
 }
 
-function unregisterCashMaster(matchId) {
+function unregisterCashMaster(token, matchId) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     var ss = getBillingSpreadsheet_();

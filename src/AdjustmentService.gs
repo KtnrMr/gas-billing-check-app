@@ -211,7 +211,7 @@ function flushHonobonoBillingBatch_(ctx) {
   if (ctx.pendingHistory.length) appendHistoryBatch_(ctx.pendingHistory);
 }
 
-function getAdjustments(targetMonth) {
+function getAdjustments_(targetMonth) {
   validateConfig_();
   var map = getActiveAdjustments_(targetMonth);
   var list = [];
@@ -288,7 +288,7 @@ function saveAdjustmentNoLock_(payload) {
   return result;
 }
 
-function saveAdjustment(payload) {
+function saveAdjustment_(payload) {
   validateConfig_();
   return withScriptLock_(function() {
     return saveAdjustmentNoLock_(payload);
@@ -326,7 +326,7 @@ function deleteAdjustmentNoLock_(adjustmentId, skipRefresh) {
   return { success: true };
 }
 
-function deleteAdjustment(adjustmentId) {
+function deleteAdjustment_(adjustmentId) {
   validateConfig_();
   return withScriptLock_(function() {
     return deleteAdjustmentNoLock_(adjustmentId);
@@ -615,7 +615,8 @@ function applyPastOnlyBillingRowNoLock_(month, matchId, name, amount, remove) {
   applyPastOnlyBillingRowWithContext_(ctx, matchId, name, amount, remove);
 }
 
-function saveHonobonoBillingBatch(targetMonth, payload) {
+function saveHonobonoBillingBatch(token, targetMonth, payload) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     return runWithPerfLog_('saveHonobonoBillingBatch', { month: targetMonth }, function(perf) {
@@ -641,7 +642,7 @@ function saveHonobonoBillingBatch(targetMonth, payload) {
         return {
           success: true,
           month: buildMonthResponse_(getMonthRow_(month)),
-          honobonoBilling: getHonobonoBillingList(month)
+          honobonoBilling: getHonobonoBillingList(token, month)
         };
       }
 
@@ -695,7 +696,7 @@ function saveHonobonoBillingBatch(targetMonth, payload) {
   });
 }
 
-function setHonobonoBillingRow(targetMonth, matchId, status, additionalAmounts) {
+function setHonobonoBillingRow_(targetMonth, matchId, status, additionalAmounts) {
   validateConfig_();
   return withScriptLock_(function() {
     var month = normalizeYearMonth_(targetMonth);
@@ -706,7 +707,7 @@ function setHonobonoBillingRow(targetMonth, matchId, status, additionalAmounts) 
   });
 }
 
-function setBillingStatus(targetMonth, matchId, statusType) {
+function setBillingStatus_(targetMonth, matchId, statusType) {
   validateConfig_();
   return withScriptLock_(function() {
     var month = normalizeYearMonth_(targetMonth);
@@ -729,7 +730,7 @@ function setBillingStatus(targetMonth, matchId, statusType) {
   });
 }
 
-function restoreBillingTarget(targetMonth, matchId) {
+function restoreBillingTarget_(targetMonth, matchId) {
   validateConfig_();
   return withScriptLock_(function() {
     var month = normalizeYearMonth_(targetMonth);

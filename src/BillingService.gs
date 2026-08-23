@@ -170,11 +170,11 @@ function computeBillingSummary_(targetMonth) {
   return summarizeBillingRecords_(ctx.records, ctx.honobono);
 }
 
-function getBillingBreakdown(targetMonth) {
-  return getDashboard(targetMonth);
+function getBillingBreakdown_(targetMonth) {
+  return getDashboard_(targetMonth);
 }
 
-function getDashboard(targetMonth) {
+function getDashboard_(targetMonth) {
   validateConfig_();
   var ctx = buildBillingRecordContext_(targetMonth);
   var records = ctx.records;
@@ -237,7 +237,8 @@ function buildHonobonoBillingListFromRecords_(records, honobono, summary) {
   };
 }
 
-function getHonobonoBillingList(targetMonth) {
+function getHonobonoBillingList(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return runWithPerfLog_('getHonobonoBillingList', { month: targetMonth }, function(perf) {
     var ctx = buildBillingRecordContext_(targetMonth);
@@ -248,7 +249,8 @@ function getHonobonoBillingList(targetMonth) {
   });
 }
 
-function getInputTargetList(targetMonth, sortBy) {
+function getInputTargetList(token, targetMonth, sortBy) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var records = computeBillingRecords_(targetMonth).filter(function(record) {
     return record.showOnInputList;
@@ -256,7 +258,7 @@ function getInputTargetList(targetMonth, sortBy) {
   return sortBillingRecords_(records, sortBy || 'id');
 }
 
-function getListTabData(targetMonth, tabName) {
+function getListTabData_(targetMonth, tabName) {
   validateConfig_();
   var records = sortBillingRecords_(computeBillingRecords_(targetMonth), 'id');
   var tab = normalizeString_(tabName);
@@ -286,7 +288,7 @@ function getListTabData(targetMonth, tabName) {
     });
   }
   if (tab === '照合結果') {
-    return getReconcileResults(targetMonth);
+    return getReconcileResults('', targetMonth);
   }
   return records;
 }

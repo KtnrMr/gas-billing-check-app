@@ -25,7 +25,8 @@ function countUnregistered_(targetMonth) {
   }).length;
 }
 
-function confirmMonth(targetMonth) {
+function confirmMonth(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     var month = normalizeYearMonth_(targetMonth);
@@ -70,7 +71,8 @@ function confirmMonth(targetMonth) {
   });
 }
 
-function unconfirmMonth(targetMonth, reason) {
+function unconfirmMonth(token, targetMonth, reason) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     var month = normalizeYearMonth_(targetMonth);

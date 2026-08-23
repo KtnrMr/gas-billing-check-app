@@ -48,7 +48,8 @@ function getArchiveSettings_() {
   });
 }
 
-function getArchiveAdminData() {
+function getArchiveAdminData(token) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var settings = getArchiveSettings_();
   var active = settings.filter(function(item) { return item.active; });
@@ -162,7 +163,8 @@ function resequenceArchiveSettings_(sheet) {
  * 年次アーカイブ作成（他アプリ同型）。
  * 使用中年の対象月データを シート名_YYYY へ移し、使用中設定を翌年へ進める。
  */
-function createYearArchive(payload) {
+function createYearArchive(token, payload) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     ensureArchiveSettingInitialized_();

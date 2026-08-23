@@ -30,7 +30,8 @@ function appendHistoryBatch_(entries) {
   }));
 }
 
-function getHistory(targetMonth) {
+function getHistory(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.HISTORY);
   if (!sheet) return [];

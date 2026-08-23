@@ -25,7 +25,7 @@ function assertMonthEditable_(targetMonth) {
   }
 }
 
-function getMonthList() {
+function getMonthList_() {
   validateConfig_();
   return readSheetObjects_(getMonthSheet_()).map(function(row) {
     return {
@@ -86,7 +86,7 @@ function getOrCreateMonthNoLock_(targetMonth) {
   return buildMonthResponse_(row);
 }
 
-function getOrCreateMonth(targetMonth) {
+function getOrCreateMonth_(targetMonth) {
   validateConfig_();
   return withScriptLock_(function() {
     return getOrCreateMonthNoLock_(targetMonth);
@@ -148,7 +148,8 @@ function updateMonthRow_(targetMonth, patch) {
   return row;
 }
 
-function saveWorkState(targetMonth, payload) {
+function saveWorkState(token, targetMonth, payload) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
     assertMonthEditable_(targetMonth);

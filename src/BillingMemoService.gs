@@ -220,7 +220,8 @@ function buildHonobonoBillingPrintView_(targetMonth) {
   };
 }
 
-function getHonobonoBillingPrintView(targetMonth) {
+function getHonobonoBillingPrintView(token, targetMonth) {
+  requirePermissionAccess_(token);
   validateConfig_();
   return buildHonobonoBillingPrintView_(targetMonth);
 }
