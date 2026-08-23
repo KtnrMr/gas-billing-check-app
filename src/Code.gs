@@ -1,4 +1,5 @@
 function doGet() {
+  registerAuthApp_();
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('請求確定チェックアプリ')

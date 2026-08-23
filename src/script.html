@@ -1,4 +1,45 @@
 <script>
+
+function layoutSplashOrbit(el) {
+  const svg = el.querySelector('.yg-splash-orbit');
+  const path = el.querySelector('.yg-splash-orbit-path');
+  const mark = el.querySelector('.yg-mark');
+  if (!svg || !path || !mark) return;
+  const box = el.getBoundingClientRect();
+  const markBox = mark.getBoundingClientRect();
+  const w = Math.max(1, box.width);
+  const h = Math.max(1, box.height);
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  const cx = markBox.left + markBox.width / 2 - box.left;
+  const cy = markBox.top + markBox.height / 2 - box.top;
+  const r = Math.max(markBox.width, markBox.height) / 2 + 18;
+  const y = cy + r;
+  path.setAttribute('d', 'M0 ' + y + ' L' + cx + ' ' + y + ' A' + r + ' ' + r + ' 0 1 1 ' + cx + ' ' + (cy - r) + ' A' + r + ' ' + r + ' 0 1 1 ' + cx + ' ' + y + ' L' + w + ' ' + y);
+  path.classList.remove('is-run');
+  void path.getBoundingClientRect();
+  path.classList.add('is-run');
+}
+var ygSplashHidden = false;
+function hideBootOverlay() {
+  if (ygSplashHidden) return;
+  ygSplashHidden = true;
+  const el = document.getElementById('bootOverlay');
+  if (!el) return;
+  el.classList.add('yg-splash-out');
+  el.setAttribute('aria-hidden', 'true');
+  window.setTimeout(function() {
+    el.classList.add('hidden');
+    el.classList.remove('yg-splash-out');
+  }, 480);
+}
+function startYgSplash() {
+  const el = document.getElementById('bootOverlay');
+  if (!el || el.classList.contains('hidden')) return;
+  window.requestAnimationFrame(function() { layoutSplashOrbit(el); });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startYgSplash);
+else startYgSplash();
+
 (function() {
   var UI_BUILD = '0.6.0';
   var state = {
@@ -1878,7 +1919,12 @@
       $('target-month').value = defaultTargetMonthValue();
       warmMasterCacheIfNeeded();
       return reloadMonth();
-    }).catch(handleImportError);
+    }).then(function() {
+      hideBootOverlay();
+    }).catch(function(error) {
+      hideBootOverlay();
+      handleImportError(error);
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);
