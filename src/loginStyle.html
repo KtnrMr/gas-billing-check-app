@@ -1,0 +1,24 @@
+<style>
+  .yg-login-screen { position: fixed; inset: 0; z-index: 20000; min-height: 100vh; overflow: auto; background: #fff; color: #292d32; font-family: inherit; }
+  .yg-login-screen.hidden { display: none !important; }
+  .yg-login-main { box-sizing: border-box; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px 62px; }
+  .yg-login-panel { box-sizing: border-box; width: min(100%, 420px); margin: 0 !important; padding: 30px 34px 28px !important; border: 1px solid #e4e7eb !important; border-radius: 16px !important; background: #fff !important; box-shadow: 0 12px 34px rgba(28, 39, 52, .08) !important; }
+  .yg-login-mark { width: 86px; height: 86px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 24px; background: color-mix(in srgb, var(--login-accent) 12%, white); }
+  .yg-login-mark svg { width: 58px; height: 58px; }
+  .yg-login-mark path { fill: none; stroke: var(--login-accent); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+  .yg-login-app-name { margin: 0 0 22px !important; color: var(--login-accent) !important; font-size: 26px !important; font-weight: 800 !important; line-height: 1.3; text-align: center; }
+  .yg-login-title { margin: 0 0 18px !important; padding-top: 17px; border-top: 1px solid #eceef1; color: #292d32 !important; font-size: 17px !important; font-weight: 750 !important; }
+  .yg-login-field, .yg-login-panel .login-field, .yg-login-panel .form-group { display: flex; flex-direction: column; gap: 7px; margin: 0 0 14px !important; color: #59616b; font-size: 12px; font-weight: 700; }
+  .yg-login-field input, .yg-login-panel .login-field input, .yg-login-panel .form-group input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; border: 1px solid #d8dde3; border-radius: 9px; background: #fff; color: #252a30; font-size: 15px; }
+  .yg-login-field input:focus, .yg-login-panel input:focus { outline: none; border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 16%, transparent); }
+  .yg-login-keep, .yg-login-panel .login-keep-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 18px; color: #5f6670; font-size: 12px; font-weight: 600; }
+  .yg-login-keep input, .yg-login-panel .login-keep-row input { accent-color: var(--login-accent); }
+  .yg-login-button, .yg-login-panel #loginButton { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid var(--login-accent) !important; border-radius: 9px !important; background: var(--login-accent) !important; color: #fff !important; font-size: 15px; font-weight: 800; cursor: pointer; }
+  .yg-login-button:hover, .yg-login-panel #loginButton:hover { filter: brightness(.94); }
+  .yg-login-panel .login-actions, .yg-login-panel .button-row { display: flex; flex-direction: column; width: 100%; margin: 0 !important; gap: 9px; }
+  .yg-login-panel #confirmGoogleButton { box-sizing: border-box; width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; border-radius: 9px; text-decoration: none; }
+  .yg-login-message, .yg-login-panel #loginMessage, .yg-login-panel #loginGoogleHint { min-height: 18px; margin: 10px 0 0; font-size: 12px; text-align: center; }
+  .yg-login-footer { position: absolute; bottom: 22px; color: var(--login-accent); font-size: 14px; font-weight: 800; letter-spacing: .08em; }
+  @media (max-width: 560px) { .yg-login-main { justify-content: flex-start; padding-top: 36px; } .yg-login-panel { padding: 25px 22px 24px !important; border: 0 !important; box-shadow: none !important; } .yg-login-mark { width: 76px; height: 76px; border-radius: 21px; } .yg-login-app-name { font-size: 23px !important; } }
+</style>
+

@@ -4,8 +4,19 @@
   <base target="_top">
   <meta charset="UTF-8">
   <?!= include('style'); ?>
+  <?!= include('loginStyle'); ?>
 </head>
 <body>
+  <div id="loginScreen" class="yg-login-screen hidden" style="--login-accent:#2563eb">
+    <main class="yg-login-main"><section class="yg-login-panel">
+      <div class="yg-login-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M32 54V27M32 36L18 22M32 31L46 17M18 22c-4-7 4-13 10-7M46 17c7-3 11 6 5 11M25 29c-8 2-11-8-4-12M38 25c0-8 11-9 13-2"/></svg></div>
+      <h1 class="yg-login-app-name">請求確定チェック</h1><div class="yg-login-title">ログイン</div>
+      <label class="yg-login-field">ログインID<input id="loginIdInput" autocomplete="username"></label>
+      <label class="yg-login-field">パスワード<input id="loginCodeInput" type="password" autocomplete="current-password"></label>
+      <label class="yg-login-keep"><input id="keepLoginCheck" type="checkbox" checked><span>この端末でログイン状態を保持する</span></label>
+      <button id="loginButton" class="yg-login-button" type="button">ログイン</button><div id="loginMessage" class="yg-login-message"></div>
+    </section><div class="yg-login-footer">やすら樹</div></main>
+  </div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
