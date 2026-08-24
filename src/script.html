@@ -26,22 +26,32 @@ function layoutSplashOrbit(el) {
   path.classList.add('is-run');
 }
 var ygSplashHidden = false;
-function hideBootOverlay() {
-  if (ygSplashHidden) return;
+var ygSplashOrbitCompleted = false;
+var ygSplashHideRequested = false;
+function completeYgSplashOrbit() { ygSplashOrbitCompleted = true; finishHideBootOverlay(); }
+function finishHideBootOverlay() {
+  if (ygSplashHidden || !ygSplashHideRequested || !ygSplashOrbitCompleted) return;
   ygSplashHidden = true;
   const el = document.getElementById('bootOverlay');
   if (!el) return;
   el.classList.add('yg-splash-out');
   el.setAttribute('aria-hidden', 'true');
-  window.setTimeout(function() {
-    el.classList.add('hidden');
-    el.classList.remove('yg-splash-out');
-  }, 480);
+  window.setTimeout(function() { el.classList.add('hidden'); el.classList.remove('yg-splash-out'); }, 480);
+}
+function hideBootOverlay() {
+  ygSplashHideRequested = true;
+  finishHideBootOverlay();
 }
 function startYgSplash() {
   const el = document.getElementById('bootOverlay');
   if (!el || el.classList.contains('hidden')) return;
-  window.requestAnimationFrame(function() { layoutSplashOrbit(el); });
+  window.requestAnimationFrame(function() {
+    const path = el.querySelector('.yg-splash-orbit-path');
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (path && !reduceMotion) path.addEventListener('animationiteration', completeYgSplashOrbit, { once: true });
+    else completeYgSplashOrbit();
+    layoutSplashOrbit(el);
+  });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startYgSplash);
 else startYgSplash();
