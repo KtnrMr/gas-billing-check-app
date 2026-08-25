@@ -2,9 +2,6 @@
 
 
 const LOGIN_ENABLED = false;
-function getAuthTokenOrThrow() {
-  return '';
-}
 
 function layoutSplashOrbit(el) {
   const svg = el.querySelector('.yg-splash-orbit');
@@ -90,7 +87,7 @@ else startYgSplash();
     eshuInputRows: []
   };
 
-  var pendingRequests = 0;
+  var pendingOverlayRequests = 0;
 
   function $(id) { return document.getElementById(id); }
 
@@ -108,13 +105,15 @@ else startYgSplash();
   }
 
   function beginLoading(showOverlay) {
-    pendingRequests += 1;
-    if (showOverlay) setLoading(true);
+    if (!showOverlay) return;
+    pendingOverlayRequests += 1;
+    setLoading(true);
   }
 
   function endLoading(showOverlay) {
-    pendingRequests = Math.max(0, pendingRequests - 1);
-    if (showOverlay && pendingRequests === 0) setLoading(false);
+    if (!showOverlay) return;
+    pendingOverlayRequests = Math.max(0, pendingOverlayRequests - 1);
+    if (pendingOverlayRequests === 0) setLoading(false);
   }
 
   function runServerEx(method, args, showOverlay) {
@@ -1943,6 +1942,8 @@ else startYgSplash();
     });
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', function() {
+    startPermissionProtectedApp(init);
+  });
 })();
 </script>

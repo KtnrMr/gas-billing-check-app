@@ -3,13 +3,18 @@ const PERM_GATE_ENABLED = false;
 const PERM_STORE_ID = '1yzGumxF-QNXP2W13s2uyIsL1M55eB-QOpVPu0VEt8CM';
 const PERM_PEPPER_PROPERTY = 'AUTH_PEPPER';
 const PERM_IDENTITY_SECRET_PROPERTY = 'PERM_IDENTITY_SECRET';
+const PERM_SECURITY_ALERT_EMAIL_PROPERTY = 'SECURITY_ALERT_EMAIL';
 const PERM_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+const PERM_LOGIN_MAX_FAILURES = 5;
+const PERM_LOGIN_LOCK_MS = 15 * 60 * 1000;
 const PERM_SHEET = Object.freeze({
   STAFF: '職員',
   GOOGLE: 'Googleアカウント',
   WORKPLACE: '職場アカウント',
   SESSION: 'セッション',
-  APP_ACCESS: 'アプリ権限'
+  APP_ACCESS: 'アプリ権限',
+  LOG: 'ログ',
+  LOGIN_ATTEMPT: 'ログイン制限'
 });
 
 function permStore_() {
@@ -17,9 +22,85 @@ function permStore_() {
 }
 
 function permSheet_(name) {
-  const sheet = permStore_().getSheetByName(name);
+  const store = permStore_();
+  let sheet = store.getSheetByName(name);
+  if (!sheet && name === PERM_SHEET.LOGIN_ATTEMPT) {
+    sheet = store.insertSheet(name);
+    sheet.getRange(1, 1, 1, 6).setValues([['キー', '職員ID', 'メール', '失敗回数', '停止期限', '更新日時']]);
+    sheet.setFrozenRows(1);
+  }
   if (!sheet) throw new Error(name + 'シートが見つかりません。');
+  if (name === PERM_SHEET.SESSION && String(sheet.getRange(1, 1).getValue() || '').trim() === 'トークン') {
+    const rowCount = sheet.getLastRow();
+    if (rowCount > 1) sheet.getRange(2, 1, rowCount - 1, sheet.getLastColumn()).clearContent();
+    sheet.getRange(1, 1).setValue('トークンハッシュ');
+  }
   return sheet;
+}
+
+function permAudit_(loginId, action, detail, email) {
+  try {
+    permSheet_(PERM_SHEET.LOG).appendRow([Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'), permNormId_(loginId), action || '', detail || '', permNormEmail_(email)]);
+    if (action === 'ログイン一時停止') permSendSecurityAlert_(loginId, action, detail, email);
+  } catch (error) {}
+}
+
+function permSendSecurityAlert_(loginId, action, detail, email) {
+  const recipient = String(PropertiesService.getScriptProperties().getProperty(PERM_SECURITY_ALERT_EMAIL_PROPERTY) || '').trim();
+  if (!recipient) return;
+  const stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  try {
+    MailApp.sendEmail({
+      to: recipient,
+      subject: '【やすら樹アプリ】' + String(action || 'セキュリティ通知'),
+      body: [
+        'やすら樹アプリでログインが一時停止されました。',
+        '',
+        '日時: ' + stamp,
+        '職員ID: ' + permNormId_(loginId),
+        'Googleアカウント: ' + permNormEmail_(email),
+        '内容: ' + String(detail || ''),
+        '',
+        '心当たりがない場合は、権限管理アプリで対象職員を緊急停止してください。'
+      ].join('\n'),
+      name: 'やすら樹アプリ'
+    });
+    permSheet_(PERM_SHEET.LOG).appendRow([stamp, permNormId_(loginId), 'セキュリティ通知送信', action || '', permNormEmail_(email)]);
+  } catch (error) {
+    permSheet_(PERM_SHEET.LOG).appendRow([stamp, permNormId_(loginId), 'セキュリティ通知失敗', action + ' / ' + String(error && error.message || error), permNormEmail_(email)]);
+  }
+}
+
+function permFindAttempt_(loginId, email) {
+  const key = permNormId_(loginId) + '|' + permNormEmail_(email);
+  const sheet = permSheet_(PERM_SHEET.LOGIN_ATTEMPT);
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) if (String(values[i][0] || '') === key) return { row: i + 1, key: key, count: Number(values[i][3] || 0), lockUntil: Number(values[i][4] || 0), updatedAt: Number(values[i][5] || 0) };
+  return { row: 0, key: key, count: 0, lockUntil: 0, updatedAt: 0 };
+}
+
+function permAssertLoginAllowed_(loginId, email) {
+  const item = permFindAttempt_(loginId, email);
+  if (item.lockUntil > Date.now()) {
+    const minutes = Math.max(1, Math.ceil((item.lockUntil - Date.now()) / 60000));
+    throw new Error('ログインに複数回失敗したため、あと約' + minutes + '分待ってから再度お試しください。');
+  }
+}
+
+function permRecordLoginFailure_(loginId, email, reason) {
+  const sheet = permSheet_(PERM_SHEET.LOGIN_ATTEMPT);
+  const item = permFindAttempt_(loginId, email);
+  const now = Date.now();
+  const count = (item.updatedAt && now - item.updatedAt > PERM_LOGIN_LOCK_MS ? 0 : item.count) + 1;
+  const lockUntil = count >= PERM_LOGIN_MAX_FAILURES ? now + PERM_LOGIN_LOCK_MS : 0;
+  const row = [item.key, permNormId_(loginId), permNormEmail_(email), count, lockUntil, now];
+  if (item.row) sheet.getRange(item.row, 1, 1, row.length).setValues([row]); else sheet.appendRow(row);
+  permAudit_(loginId, lockUntil ? 'ログイン一時停止' : 'ログイン失敗', String(reason || '') + ' / ' + count + '回', email);
+}
+
+function permClearLoginFailures_(loginId, email) {
+  const item = permFindAttempt_(loginId, email);
+  if (item.row) permSheet_(PERM_SHEET.LOGIN_ATTEMPT).deleteRow(item.row);
 }
 
 function permIdentitySecret_() {
@@ -160,6 +241,18 @@ function permHash_(password, salt) {
   }).join('');
 }
 
+function permHashSessionToken_(token) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(token || ''),
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(function(byte) {
+    const value = byte < 0 ? byte + 256 : byte;
+    return ('0' + value.toString(16)).slice(-2);
+  }).join('');
+}
+
 function permVerifyPassword_(password, salt, expectedHash) {
   const actual = permHash_(password, salt);
   if (actual.length !== String(expectedHash || '').length) return false;
@@ -181,7 +274,7 @@ function permNeedsSetup_(staff) {
 function permCreateSession_(staff, email) {
   const token = Utilities.getUuid();
   permSheet_(PERM_SHEET.SESSION).appendRow([
-    token,
+    permHashSessionToken_(token),
     staff.loginId,
     email,
     staff.role,
@@ -194,10 +287,11 @@ function permCreateSession_(staff, email) {
 function permGetSession_(token) {
   const value = String(token || '').trim();
   if (!value) return null;
+  const tokenHash = permHashSessionToken_(value);
   const values = permSheet_(PERM_SHEET.SESSION).getDataRange().getValues();
   const now = Date.now();
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0] || '').trim() !== value) continue;
+    if (String(values[i][0] || '').trim() !== tokenHash) continue;
     if (Number(values[i][4] || 0) <= now) return null;
     return {
       token: value,
@@ -243,12 +337,15 @@ function permissionLogin(loginId, password, identity) {
   const id = permNormId_(loginId);
   const pass = String(password || '');
   if (!id) throw new Error('職員IDを入力してください。');
+  permAssertLoginAllowed_(id, email);
 
   const staff = permGetStaff_(id);
   if (!staff || staff.status !== '有効') {
+    permRecordLoginFailure_(id, email, '職員IDまたは状態');
     throw new Error('職員IDまたはパスワードが正しくありません。');
   }
   if (!permIsBound_(id, email)) {
+    permRecordLoginFailure_(id, email, 'Google紐付け');
     throw new Error('このGoogleアカウントでは、その職員IDではログインできません。');
   }
   if (permNeedsSetup_(staff)) {
@@ -260,11 +357,15 @@ function permissionLogin(loginId, password, identity) {
     throw new Error('ログイン設定が完了していません。管理者に連絡してください。');
   }
   if (!permVerifyPassword_(pass, staff.salt, staff.passwordHash)) {
+    permRecordLoginFailure_(id, email, 'パスワード');
     throw new Error('職員IDまたはパスワードが正しくありません。');
   }
   if (!permHasAppAccess_(staff.loginId)) {
+    permAudit_(id, 'ログイン拒否', 'アプリ権限なし', email);
     throw new Error('このアプリを使う権限がありません。管理者に連絡してください。');
   }
+  permClearLoginFailures_(id, email);
+  permAudit_(id, 'ログイン成功', ScriptApp.getScriptId(), email);
   return {
     success: true,
     token: permCreateSession_(staff, email),
@@ -286,11 +387,14 @@ function permissionVerifySession(token) {
 function permissionLogout(token) {
   const value = String(token || '').trim();
   if (!value) return { success: true };
+  const tokenHash = permHashSessionToken_(value);
+  const current = permGetSession_(value);
   const sheet = permSheet_(PERM_SHEET.SESSION);
   const values = sheet.getDataRange().getValues();
   for (let i = values.length - 1; i >= 1; i--) {
-    if (String(values[i][0] || '').trim() === value) sheet.deleteRow(i + 1);
+    if (String(values[i][0] || '').trim() === tokenHash) sheet.deleteRow(i + 1);
   }
+  if (current) permAudit_(current.loginId, 'ログアウト', ScriptApp.getScriptId(), current.email);
   return { success: true };
 }
 

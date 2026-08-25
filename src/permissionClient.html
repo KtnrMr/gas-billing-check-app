@@ -1,0 +1,193 @@
+<script>
+(function(global) {
+  'use strict';
+
+  var state = { started: false, bound: false, user: null };
+  var storageKey = 'yasuragi_permission_' + String(global.AUTH_APP_TYPE || document.title || 'app')
+    .toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+
+  function loginEnabled() {
+    return typeof LOGIN_ENABLED !== 'undefined' && LOGIN_ENABLED === true;
+  }
+
+  function readSavedAuth() {
+    var raw = '';
+    try { raw = localStorage.getItem(storageKey) || ''; } catch (error) {}
+    if (!raw) try { raw = sessionStorage.getItem(storageKey) || ''; } catch (error) {}
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (error) { return null; }
+  }
+
+  function saveAuth(auth, remember) {
+    clearSavedAuth();
+    try {
+      (remember ? localStorage : sessionStorage).setItem(storageKey, JSON.stringify(auth));
+    } catch (error) {}
+  }
+
+  function clearSavedAuth() {
+    try { localStorage.removeItem(storageKey); } catch (error) {}
+    try { sessionStorage.removeItem(storageKey); } catch (error) {}
+  }
+
+  function setLoginMessage(message, isError) {
+    var area = document.getElementById('loginMessage');
+    if (!area) return;
+    area.textContent = String(message || '');
+    area.classList.toggle('error', !!isError);
+  }
+
+  function finishSplash() {
+    if (typeof global.hideBootOverlay === 'function') global.hideBootOverlay();
+  }
+
+  function showLogin(message) {
+    var screen = document.getElementById('loginScreen');
+    if (screen) screen.classList.remove('hidden');
+    var button = document.getElementById('loginButton');
+    if (button) button.disabled = false;
+    setLoginMessage(message || '', !!message);
+    finishSplash();
+  }
+
+  function hideLogin() {
+    var screen = document.getElementById('loginScreen');
+    if (screen) screen.classList.add('hidden');
+    setLoginMessage('', false);
+  }
+
+  function startApp(startCallback, user) {
+    if (state.started) return;
+    state.started = true;
+    state.user = user || null;
+    global.currentAuthUser = state.user;
+    hideLogin();
+    ensureLogoutButton(state.user);
+    startCallback();
+  }
+
+  function ensureLogoutButton(user) {
+    if (!loginEnabled()) return;
+    var button = document.getElementById('permissionLogoutButton');
+    if (!button) {
+      button = document.createElement('button');
+      button.id = 'permissionLogoutButton';
+      button.type = 'button';
+      button.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:19000;padding:7px 11px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#475467;font:700 12px/1.2 sans-serif;box-shadow:0 2px 8px rgba(16,24,40,.12);cursor:pointer';
+      document.body.appendChild(button);
+      button.addEventListener('click', function() {
+        var auth = readSavedAuth();
+        clearSavedAuth();
+        if (!auth || !auth.token) { location.reload(); return; }
+        google.script.run
+          .withSuccessHandler(function() { location.reload(); })
+          .withFailureHandler(function() { location.reload(); })
+          .permissionLogout(auth.token);
+      });
+    }
+    button.textContent = (user && user.name ? user.name + '　' : '') + 'ログオフ';
+  }
+
+  function verifySavedAuth(startCallback, auth) {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (!result || !result.valid) {
+          clearSavedAuth();
+          showLogin();
+          return;
+        }
+        auth.user = result.user || auth.user || null;
+        saveAuth(auth, !!auth.remember);
+        startApp(startCallback, auth.user);
+      })
+      .withFailureHandler(function(error) {
+        clearSavedAuth();
+        showLogin(error && error.message ? error.message : 'ログイン状態を確認できませんでした。');
+      })
+      .permissionVerifySession(auth.token);
+  }
+
+  function executeLogin(startCallback) {
+    var id = document.getElementById('loginIdInput');
+    var password = document.getElementById('loginCodeInput');
+    var button = document.getElementById('loginButton');
+    var keep = document.getElementById('keepLoginCheck');
+    var loginId = id ? id.value.trim() : '';
+    var code = password ? password.value : '';
+    if (!loginId || !code) {
+      setLoginMessage('職員IDとパスワードを入力してください。', true);
+      return;
+    }
+    if (button) button.disabled = true;
+    setLoginMessage('', false);
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (button) button.disabled = false;
+        var remember = !!(keep && keep.checked);
+        var auth = {
+          token: result.token,
+          user: result.user || null,
+          remember: remember,
+          expiresAt: result.expiresAt || 0
+        };
+        saveAuth(auth, remember);
+        startApp(startCallback, auth.user);
+      })
+      .withFailureHandler(function(error) {
+        if (button) button.disabled = false;
+        setLoginMessage(error && error.message ? error.message : 'ログインに失敗しました。', true);
+        finishSplash();
+      })
+      .permissionLogin(loginId, code, null);
+  }
+
+  function bindLogin(startCallback) {
+    if (state.bound) return;
+    state.bound = true;
+    var button = document.getElementById('loginButton');
+    var id = document.getElementById('loginIdInput');
+    var password = document.getElementById('loginCodeInput');
+    if (button) button.addEventListener('click', function() { executeLogin(startCallback); });
+    [id, password].forEach(function(input) {
+      if (input) input.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') executeLogin(startCallback);
+      });
+    });
+  }
+
+  global.startPermissionProtectedApp = function(startCallback) {
+    bindLogin(startCallback);
+    if (!loginEnabled()) {
+      clearSavedAuth();
+      startApp(startCallback, null);
+      return;
+    }
+    var auth = readSavedAuth();
+    if (!auth || !auth.token || (auth.expiresAt && auth.expiresAt <= Date.now())) {
+      clearSavedAuth();
+      showLogin();
+      return;
+    }
+    verifySavedAuth(startCallback, auth);
+  };
+
+  global.getAuthTokenOrThrow = function() {
+    if (!loginEnabled()) return '';
+    var auth = readSavedAuth();
+    if (!auth || !auth.token || (auth.expiresAt && auth.expiresAt <= Date.now())) {
+      clearSavedAuth();
+      showLogin('ログインの有効期限が切れました。再度ログインしてください。');
+      throw new Error('ログインの有効期限が切れました。再度ログインしてください。');
+    }
+    return auth.token;
+  };
+
+  global.handleAuthFailure = function(error) {
+    var message = error && error.message ? error.message : 'ログインの有効期限が切れました。再度ログインしてください。';
+    if (!loginEnabled() || !/ログイン|権限|利用できません/.test(message)) return false;
+    clearSavedAuth();
+    showLogin(message);
+    return true;
+  };
+})(window);
+</script>
