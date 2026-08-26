@@ -56,6 +56,16 @@
     setLoginMessage('', false);
   }
 
+  function restartSplash() {
+    if (!loginEnabled()) return;
+    if (typeof global.showBootOverlay === 'function') { global.showBootOverlay(); return; }
+    var overlay = document.getElementById('bootOverlay');
+    if (!overlay) return;
+    global.ygSplashHidden = false; global.ygSplashOrbitCompleted = false; global.ygSplashHideRequested = false;
+    overlay.classList.remove('hidden', 'yg-splash-out'); overlay.setAttribute('aria-hidden', 'false');
+    if (typeof global.startYgSplash === 'function') global.startYgSplash();
+  }
+
   function startApp(startCallback, user) {
     if (state.started) return;
     state.started = true;
@@ -63,6 +73,7 @@
     global.currentAuthUser = state.user;
     hideLogin();
     ensureLogoutButton(state.user);
+    restartSplash();
     startCallback();
   }
 
