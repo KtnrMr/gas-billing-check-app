@@ -80,6 +80,7 @@
   function ensureLogoutButton(user) {
     if (!loginEnabled()) return;
     var button = document.getElementById('permissionLogoutButton');
+    var userLabel = document.getElementById('permissionUserLabel');
     if (!button) return;
     if (!button.dataset.permissionLogoutBound) {
       button.dataset.permissionLogoutBound = '1';
@@ -89,6 +90,7 @@
         state.started = false;
         state.user = null;
         global.currentAuthUser = null;
+        if (userLabel) userLabel.textContent = '';
         button.hidden = true;
         showLogin('ログアウトしました。');
         if (!auth || !auth.token) return;
@@ -99,7 +101,8 @@
       });
     }
     button.hidden = false;
-    button.textContent = (user && user.name ? user.name + '　' : '') + 'ログアウト';
+    if (userLabel) userLabel.textContent = user && user.name ? user.name : '';
+    button.textContent = 'ログアウト';
   }
 
   function verifySavedAuth(startCallback, auth) {
