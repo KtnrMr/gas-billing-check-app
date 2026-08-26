@@ -291,7 +291,7 @@ function getListTabData_(targetMonth, tabName) {
     });
   }
   if (tab === '照合結果') {
-    return getReconcileResults('', targetMonth);
+    return getReconcileResults_(targetMonth);
   }
   return records;
 }

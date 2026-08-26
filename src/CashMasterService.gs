@@ -1,5 +1,9 @@
 function getCashMasterList(token) {
   requirePermissionAccess_(token);
+  return getCashMasterList_();
+}
+
+function getCashMasterList_() {
   validateConfig_();
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.CASH_MASTER);
   if (!sheet) return [];
@@ -104,7 +108,7 @@ function unregisterCashMaster(token, matchId) {
 
 function getActiveCashMasterMap_(targetMonth) {
   var month = normalizeYearMonth_(targetMonth);
-  return getCashMasterList().reduce(function(map, row) {
+  return getCashMasterList_().reduce(function(map, row) {
     if (!isTruthyFlag_(row['通常現金'])) return map;
     var matchId = normalizeIdForMatch_(row['照合用ID']);
     if (!matchId) return map;

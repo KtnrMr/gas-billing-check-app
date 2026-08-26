@@ -250,6 +250,10 @@ function runReconcile(token, targetMonth) {
 
 function getReconcileResults(token, targetMonth) {
   requirePermissionAccess_(token);
+  return getReconcileResults_(targetMonth);
+}
+
+function getReconcileResults_(targetMonth) {
   validateConfig_();
   var sheet = getReadyReconcileSheet_();
   var month = normalizeYearMonth_(targetMonth);

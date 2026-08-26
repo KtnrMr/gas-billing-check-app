@@ -34,12 +34,16 @@ function getMonthInfo(token, targetMonth) {
 }
 
 function getAppState_(targetMonth) {
-  return getMonthView('', targetMonth);
+  return getMonthView_(targetMonth);
 }
 
 /** 月情報＋集計サマリー（照合結果は含めない） */
 function getMonthView(token, targetMonth) {
   requirePermissionAccess_(token);
+  return getMonthView_(targetMonth);
+}
+
+function getMonthView_(targetMonth) {
   validateConfig_();
   return runWithPerfLog_('getMonthView', { month: targetMonth }, function(perf) {
     var month = normalizeYearMonth_(targetMonth);
@@ -60,11 +64,11 @@ function getMonthView(token, targetMonth) {
 }
 
 function getCoreMonthState_(targetMonth) {
-  return getMonthView('', targetMonth);
+  return getMonthView_(targetMonth);
 }
 
 function getMonthSnapshot_(targetMonth) {
-  return getMonthView('', targetMonth);
+  return getMonthView_(targetMonth);
 }
 
 /**
