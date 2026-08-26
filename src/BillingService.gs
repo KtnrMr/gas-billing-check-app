@@ -77,6 +77,7 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
     var hasHold = adjList.some(function(item) {
       return isMonthlyStopType_(item.type);
     });
+    var isUsuallyCash = !!cashMaster[matchId];
     if (!hasCash && !hasHold && cashMaster[matchId]) hasCash = true;
 
     var hasPastOnly = adjList.some(function(item) {
@@ -102,15 +103,16 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       warnings.push('金額エラー');
     }
 
-    if (hasCash) {
-      billingStatus = APP.ADJUSTMENT_TYPES.CASH;
-      finalAmount = 0;
-    } else if (hasHold) {
+    if (hasHold) {
       billingStatus = APP.ADJUSTMENT_TYPES.HOLD;
       finalAmount = 0;
       isMonthlyStop = true;
-      showOnInputList = true;
-      isReconcileTarget = true;
+      // 通常現金の利用者は e集ちゃんへ入力しないため、当月停止でも照合対象外。
+      showOnInputList = !isUsuallyCash;
+      isReconcileTarget = !isUsuallyCash;
+    } else if (hasCash) {
+      billingStatus = APP.ADJUSTMENT_TYPES.CASH;
+      finalAmount = 0;
     } else if (hasPastOnly && !honobonoRow) {
       billingStatus = APP.ADJUSTMENT_TYPES.PAST_ONLY;
       finalAmount = pastOnlyAmount + additionalOnlyAmount;
@@ -129,7 +131,7 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       isReconcileTarget = true;
     }
 
-    if (hasCash) {
+    if (hasCash && !hasHold) {
       isInputTarget = false;
       showOnInputList = false;
       isReconcileTarget = false;
@@ -144,6 +146,7 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       masterKana: master ? master.kana : '',
       masterCategory: master ? master.category : APP.MASTER_CATEGORY.UNREGISTERED,
       billingStatus: billingStatus,
+      isUsuallyCash: isUsuallyCash,
       honobonoAmount: honobonoAmount,
       additionalAmount: additionalOnlyAmount + pastOnlyAmount,
       additionalOnlyAmount: additionalOnlyAmount,
@@ -217,7 +220,8 @@ function toHonobonoBillingRow_(record) {
     additionalAmount: record.additionalOnlyAmount,
     additionalItems: additionalItems,
     finalAmount: record.finalAmount,
-    billingStatus: record.billingStatus
+    billingStatus: record.billingStatus,
+    isUsuallyCash: !!record.isUsuallyCash
   };
 }
 

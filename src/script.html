@@ -869,6 +869,9 @@ else startYgSplash();
       } else {
         html.push(row.status);
       }
+      if (row.status === '当月停止' && row.isUsuallyCash) {
+        html.push('<span class="normal-payment-note">通常：現金支払い</span>');
+      }
       html.push('</td><td>');
       if (row.status === '合算') {
         var items = (row.additionalItems && row.additionalItems.length)

@@ -96,7 +96,8 @@ function billingRecordToCacheRow_(month, syncedAt, record) {
     '金額コピー可': record.canCopyAmount ? '1' : '',
     '取込判定': record.importJudgment || '',
     '警告': serializeWarningsForCache_(record.warnings),
-    '調整JSON': serializeAdjustmentsForCache_(record.adjustments)
+    '調整JSON': serializeAdjustmentsForCache_(record.adjustments),
+    '通常現金': record.isUsuallyCash ? '1' : ''
   };
 }
 
@@ -116,6 +117,7 @@ function billingRecordFromCacheRow_(row) {
     masterKana: normalizeString_(row['フリガナ']),
     masterCategory: normalizeString_(row['マスタ区分']) || APP.MASTER_CATEGORY.UNREGISTERED,
     billingStatus: normalizeString_(row['請求状態']),
+    isUsuallyCash: isTruthyFlag_(row['通常現金']),
     honobonoAmount: Number(row['ほのぼの請求額']) || 0,
     additionalAmount: additionalOnlyAmount + pastOnlyAmount,
     additionalOnlyAmount: additionalOnlyAmount,
@@ -137,6 +139,11 @@ function readBillingRecordCache_(targetMonth) {
   if (!month) return null;
   var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.BILLING_CACHE);
   if (!sheet || sheet.getLastRow() < 2) return null;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(value) {
+    return normalizeString_(value);
+  });
+  // 旧キャッシュには通常現金の情報がないため、最新データから再作成する。
+  if (headers.indexOf('通常現金') < 0) return null;
 
   var records = [];
   readSheetObjects_(sheet).forEach(function(row) {
