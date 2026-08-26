@@ -87,10 +87,10 @@ function writeMasterUserCache_(users) {
   };
 }
 
-function syncMasterUserCache_() {
+function rebuildMasterUserCache_() {
   clearMasterUsersMemoryCache_();
   clearAllBillingRecordCache_();
-  var perf = startPerfLog_('syncMasterUserCache_', {});
+  var perf = startPerfLog_('rebuildMasterUserCache_', {});
   var users = loadMasterUsersFromExternal_();
   perf.mark('read external');
   var meta = writeMasterUserCache_(users);
@@ -127,7 +127,7 @@ function loadMasterUsers_() {
     return users;
   }
 
-  syncMasterUserCache_();
+  rebuildMasterUserCache_();
   perf.mark('sync on cache miss');
   perf.done();
   return masterUsersMemoryCache_;
@@ -144,8 +144,10 @@ function getMasterUserCacheStatus_() {
   };
 }
 
-function isMasterCacheSyncedToday_() {
-  var syncedAt = normalizeString_(getAppSettings_().MASTER_CACHE_SYNCED_AT);
+function isMasterCacheSyncedToday_(syncedAtValue) {
+  var syncedAt = normalizeString_(syncedAtValue == null
+    ? getAppSettings_().MASTER_CACHE_SYNCED_AT
+    : syncedAtValue);
   if (!syncedAt) return false;
   var today = Utilities.formatDate(new Date(), APP.TIMEZONE, 'yyyy-MM-dd');
   return syncedAt.indexOf(today) === 0;
@@ -153,7 +155,7 @@ function isMasterCacheSyncedToday_() {
 
 function syncMasterUserCacheIfStale_() {
   var status = getMasterUserCacheStatus_();
-  if (status.hasCache && isMasterCacheSyncedToday_()) {
+  if (status.hasCache && isMasterCacheSyncedToday_(status.syncedAt)) {
     return {
       success: true,
       hasCache: true,
@@ -162,7 +164,7 @@ function syncMasterUserCacheIfStale_() {
       syncedAt: status.syncedAt
     };
   }
-  var result = syncMasterUserCache_();
+  var result = rebuildMasterUserCache_();
   return {
     success: true,
     hasCache: true,
@@ -175,6 +177,16 @@ function syncMasterUserCacheIfStale_() {
 function syncMasterUserCacheIfStale(token) {
   requirePermissionAccess_(token);
   validateConfig_();
+  var status = getMasterUserCacheStatus_();
+  if (status.hasCache && isMasterCacheSyncedToday_(status.syncedAt)) {
+    return {
+      success: true,
+      hasCache: true,
+      syncedNow: false,
+      count: status.count,
+      syncedAt: status.syncedAt
+    };
+  }
   return withScriptLock_(function() {
     return syncMasterUserCacheIfStale_();
   });
@@ -193,17 +205,14 @@ function warmMasterUserCacheInBackground_() {
 }
 
 function ensureMasterUserCache(token) {
+  return syncMasterUserCacheIfStale(token);
+}
+
+function syncMasterUserCache(token) {
   requirePermissionAccess_(token);
   validateConfig_();
   return withScriptLock_(function() {
-    return ensureMasterUserCache_();
-  });
-}
-
-function syncMasterUserCache_() {
-  validateConfig_();
-  return withScriptLock_(function() {
-    var result = syncMasterUserCache_();
+    var result = rebuildMasterUserCache_();
     return {
       success: true,
       count: result.count,

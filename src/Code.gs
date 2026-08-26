@@ -44,13 +44,17 @@ function getMonthView(token, targetMonth) {
   return runWithPerfLog_('getMonthView', { month: targetMonth }, function(perf) {
     var month = normalizeYearMonth_(targetMonth);
     if (!month) throw new Error('対象月が不正です。');
-    ensureMonthRow_(month);
+    var monthRow = ensureMonthRow_(month);
     perf.mark('ensureMonthRow');
+    var ctx = buildBillingRecordContext_(month);
+    perf.mark('buildBillingRecordContext');
+    var billingList = buildHonobonoBillingListFromRecords_(ctx.records, ctx.honobono);
     var result = {
-      month: getMonthInfo(token, month),
-      dashboard: getBillingBreakdown_(month)
+      month: buildMonthResponse_(monthRow),
+      dashboard: buildDashboardFromContext_(ctx),
+      honobonoBilling: attachBillingMemosToHonobonoList_(month, billingList)
     };
-    perf.mark('getMonthInfo + getBillingBreakdown');
+    perf.mark('build month workspace');
     return result;
   });
 }

@@ -1602,7 +1602,7 @@ else startYgSplash();
     updateEditableUi();
   }
 
-  function applyState(data) {
+  function applyState(data, options) {
     if (!data) {
       showMessage('データの取得に失敗しました。もう一度「読み込み」を押してください。', 'error');
       return false;
@@ -1610,6 +1610,11 @@ else startYgSplash();
     if (data.month !== undefined) state.month = data.month || null;
     if (data.dashboard !== undefined) state.dashboard = data.dashboard || null;
     if (data.reconcile !== undefined) state.reconcile = data.reconcile || [];
+    if ((!options || options.includeHonobonoBilling !== false) && data.honobonoBilling !== undefined) {
+      state.loadedScreens.honobono = state.targetMonth;
+      state.honobonoBilling = data.honobonoBilling || null;
+      resetHonobonoDraftFromServer(data.honobonoBilling);
+    }
     renderFromState();
     return true;
   }
@@ -1623,7 +1628,7 @@ else startYgSplash();
     state.targetMonth = month;
     invalidateMonthCache();
     return loadMonthView(month).then(function(data) {
-      return applyState(data);
+      return applyState(data, { includeHonobonoBilling: false });
     }).catch(function(error) {
       handleImportError(error);
       return false;
@@ -1644,11 +1649,14 @@ else startYgSplash();
         return false;
       }
       applyState(data);
-      renderHonobonoBillingTable(true);
-      return loadSecondaryMonthData().then(function() {
-        showMessage('読み込みました。', 'success');
-        return true;
-      });
+      if (data.honobonoBilling !== undefined) {
+        renderHonobonoBillingRows('honobono-billing-table-wrap', getSortedHonobonoDisplayRows(), true);
+      } else {
+        renderHonobonoBillingTable(true);
+      }
+      loadSecondaryMonthData().catch(function() {});
+      showMessage('読み込みました。', 'success');
+      return true;
     }).catch(function(error) {
       handleImportError(error);
       return false;

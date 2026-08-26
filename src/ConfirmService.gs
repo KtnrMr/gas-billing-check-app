@@ -2,11 +2,12 @@ function countImportErrors_(targetMonth) {
   var month = normalizeYearMonth_(targetMonth);
   var count = 0;
   [APP.SHEETS.HONOBONO, APP.SHEETS.ESHU].forEach(function(sheetName) {
-    var batch = getLatestImportBatch_(month, sheetName);
-    if (!batch) return;
     var sheet = getBillingSpreadsheet_().getSheetByName(sheetName);
     if (!sheet) return;
-    readSheetObjects_(sheet).forEach(function(row) {
+    var rows = readSheetObjects_(sheet);
+    var batch = getLatestImportBatchFromRows_(month, rows);
+    if (!batch) return;
+    rows.forEach(function(row) {
       if (normalizeYearMonth_(row['対象月']) !== month) return;
       if (Number(row['取込回数']) !== batch) return;
       var judgment = normalizeString_(row['取込判定']);

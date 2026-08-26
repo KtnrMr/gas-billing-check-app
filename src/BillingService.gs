@@ -174,9 +174,7 @@ function getBillingBreakdown_(targetMonth) {
   return getDashboard_(targetMonth);
 }
 
-function getDashboard_(targetMonth) {
-  validateConfig_();
-  var ctx = buildBillingRecordContext_(targetMonth);
+function buildDashboardFromContext_(ctx) {
   var records = ctx.records;
   var summary = summarizeBillingRecords_(records, ctx.honobono);
 
@@ -191,6 +189,11 @@ function getDashboard_(targetMonth) {
     eshuExpectedCount: summary.inputCount || 0,
     eshuExpectedTotal: summary.inputTotal || 0
   };
+}
+
+function getDashboard_(targetMonth) {
+  validateConfig_();
+  return buildDashboardFromContext_(buildBillingRecordContext_(targetMonth));
 }
 
 function toHonobonoBillingRow_(record) {
