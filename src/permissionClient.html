@@ -80,23 +80,26 @@
   function ensureLogoutButton(user) {
     if (!loginEnabled()) return;
     var button = document.getElementById('permissionLogoutButton');
-    if (!button) {
-      button = document.createElement('button');
-      button.id = 'permissionLogoutButton';
-      button.type = 'button';
-      button.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:19000;padding:7px 11px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#475467;font:700 12px/1.2 sans-serif;box-shadow:0 2px 8px rgba(16,24,40,.12);cursor:pointer';
-      document.body.appendChild(button);
+    if (!button) return;
+    if (!button.dataset.permissionLogoutBound) {
+      button.dataset.permissionLogoutBound = '1';
       button.addEventListener('click', function() {
         var auth = readSavedAuth();
         clearSavedAuth();
-        if (!auth || !auth.token) { location.reload(); return; }
+        state.started = false;
+        state.user = null;
+        global.currentAuthUser = null;
+        button.hidden = true;
+        showLogin('ログアウトしました。');
+        if (!auth || !auth.token) return;
         google.script.run
-          .withSuccessHandler(function() { location.reload(); })
-          .withFailureHandler(function() { location.reload(); })
+          .withSuccessHandler(function() {})
+          .withFailureHandler(function() {})
           .permissionLogout(auth.token);
       });
     }
-    button.textContent = (user && user.name ? user.name + '　' : '') + 'ログオフ';
+    button.hidden = false;
+    button.textContent = (user && user.name ? user.name + '　' : '') + 'ログアウト';
   }
 
   function verifySavedAuth(startCallback, auth) {
