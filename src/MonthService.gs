@@ -201,8 +201,7 @@ function refreshMonthSummaryFromRecords_(targetMonth, records, honobono, mismatc
 }
 
 function countMismatchResults_(targetMonth) {
-  var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.RECONCILE);
-  if (!sheet) return 0;
+  var sheet = getReadyReconcileSheet_();
   var month = normalizeYearMonth_(targetMonth);
   return readSheetObjects_(sheet).filter(function(row) {
     if (!yearMonthKeyEquals_(row['対象月'], month)) return false;

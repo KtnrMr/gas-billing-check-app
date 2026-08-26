@@ -7,7 +7,7 @@ function setupApplicationSheets_() {
     ensureSheet_(ss, APP.SHEETS.ADJUSTMENT, APP.HEADERS.ADJUSTMENT);
     ensureSheet_(ss, APP.SHEETS.CASH_MASTER, APP.HEADERS.CASH_MASTER);
     ensureSheet_(ss, APP.SHEETS.ESHU, APP.HEADERS.ESHU);
-    ensureSheet_(ss, APP.SHEETS.RECONCILE, APP.HEADERS.RECONCILE);
+    getReadyReconcileSheet_();
     ensureSheet_(ss, APP.SHEETS.HISTORY, APP.HEADERS.HISTORY);
     ensureSheet_(ss, APP.SHEETS.NAME_CONFIRMED, APP.HEADERS.NAME_CONFIRMED);
     ensureSheet_(ss, APP.SHEETS.MASTER_CACHE, APP.HEADERS.MASTER_CACHE);

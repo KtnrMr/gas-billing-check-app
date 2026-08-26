@@ -26,6 +26,72 @@ function formatEshuAmountForReconcile_(eshuRow) {
   return eshuRow.amount;
 }
 
+function isKnownReconcileJudgment_(value) {
+  var judgment = normalizeString_(value);
+  return Object.keys(APP.RECONCILE_JUDGMENT).some(function(key) {
+    return APP.RECONCILE_JUDGMENT[key] === judgment;
+  });
+}
+
+/**
+ * 「フリガナ」列追加時に、既存の照合結果シートでは同列が末尾へ追加され、
+ * その後の書込み値だけが新しい列順になっていた期間がある。
+ * 旧形式の行と新しい位置で書かれた行を判別し、見出しと値を正しい順へ揃える。
+ */
+function migrateReconcileColumnOrder_(sheet) {
+  if (!sheet || sheet.getLastColumn() < 1) return false;
+  var expected = APP.HEADERS.RECONCILE.slice();
+  var lastCol = sheet.getLastColumn();
+  var actual = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(value) {
+    return normalizeString_(value);
+  });
+  while (actual.length && !actual[actual.length - 1]) actual.pop();
+  var alreadyCorrect = expected.length === actual.length && expected.every(function(header, index) {
+    return actual[index] === header;
+  });
+  if (alreadyCorrect) return false;
+
+  var oldHeaders = expected.filter(function(header) { return header !== 'フリガナ'; });
+  var misplacedHeaders = oldHeaders.concat(['フリガナ']);
+  var isKnownMisplacement = misplacedHeaders.length === actual.length && misplacedHeaders.every(function(header, index) {
+    return actual[index] === header;
+  });
+  if (!isKnownMisplacement) {
+    throw new Error('照合結果シートの列順を自動修復できません。見出しを確認してください。');
+  }
+
+  var lastRow = sheet.getLastRow();
+  var rawRows = lastRow >= 2
+    ? sheet.getRange(2, 1, lastRow - 1, actual.length).getValues()
+    : [];
+  var oldJudgmentIndex = actual.indexOf('判定');
+  var newJudgmentIndex = expected.indexOf('判定');
+  var migratedRows = rawRows.map(function(row) {
+    // 新しい列順の値が、古い見出しの下へ位置で書かれた行。
+    if (isKnownReconcileJudgment_(row[newJudgmentIndex])
+        && !isKnownReconcileJudgment_(row[oldJudgmentIndex])) {
+      return expected.map(function(header, index) { return row[index]; });
+    }
+    // 列追加前の見出しと値が一致していた行。
+    var oldObject = {};
+    actual.forEach(function(header, index) { oldObject[header] = row[index]; });
+    return expected.map(function(header) { return oldObject[header] == null ? '' : oldObject[header]; });
+  });
+
+  sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+  if (migratedRows.length) {
+    sheet.getRange(2, 1, migratedRows.length, expected.length).setValues(migratedRows);
+  }
+  formatTextColumns_(sheet, expected, 2, migratedRows.length);
+  return true;
+}
+
+function getReadyReconcileSheet_() {
+  var sheet = ensureSheet_(getBillingSpreadsheet_(), APP.SHEETS.RECONCILE, APP.HEADERS.RECONCILE);
+  migrateReconcileColumnOrder_(sheet);
+  return sheet;
+}
+
 function buildReconcileRow_(month, record, eshuRow, judgment, note) {
   var eshuDisplay = formatEshuAmountForReconcile_(eshuRow);
   var diff = '';
@@ -127,8 +193,7 @@ function runReconcileInternal_(targetMonth, options) {
     appendExtraInputReconcileRows_(month, results, reconcileMap, recordMap, eshu, users);
     perf.mark('judge reconcile rows');
 
-    var ss = getBillingSpreadsheet_();
-    var sheet = ensureSheet_(ss, APP.SHEETS.RECONCILE, APP.HEADERS.RECONCILE);
+    var sheet = getReadyReconcileSheet_();
     var writeMode = replaceMonthRowsInSheet_(sheet, APP.HEADERS.RECONCILE, '対象月', month, results);
     perf.mark('write reconcile sheet (' + writeMode + ')');
 
@@ -186,8 +251,7 @@ function runReconcile(token, targetMonth) {
 function getReconcileResults(token, targetMonth) {
   requirePermissionAccess_(token);
   validateConfig_();
-  var sheet = getBillingSpreadsheet_().getSheetByName(APP.SHEETS.RECONCILE);
-  if (!sheet) return [];
+  var sheet = getReadyReconcileSheet_();
   var month = normalizeYearMonth_(targetMonth);
   return readSheetObjects_(sheet).filter(function(row) {
     return yearMonthKeyEquals_(row['対象月'], month);
