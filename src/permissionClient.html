@@ -12,16 +12,17 @@
 
   function readSavedAuth() {
     var raw = '';
-    try { raw = localStorage.getItem(storageKey) || ''; } catch (error) {}
-    if (!raw) try { raw = sessionStorage.getItem(storageKey) || ''; } catch (error) {}
+    try { localStorage.removeItem(storageKey); } catch (error) {}
+    try { raw = sessionStorage.getItem(storageKey) || ''; } catch (error) {}
     if (!raw) return null;
     try { return JSON.parse(raw); } catch (error) { return null; }
   }
 
-  function saveAuth(auth, remember) {
+  function saveAuth(auth) {
     clearSavedAuth();
+    auth.remember = false;
     try {
-      (remember ? localStorage : sessionStorage).setItem(storageKey, JSON.stringify(auth));
+      sessionStorage.setItem(storageKey, JSON.stringify(auth));
     } catch (error) {}
   }
 
@@ -35,6 +36,13 @@
     if (!area) return;
     area.textContent = String(message || '');
     area.classList.toggle('error', !!isError);
+  }
+
+  function clearLoginInputs() {
+    var id = document.getElementById('loginIdInput');
+    var password = document.getElementById('loginCodeInput');
+    if (id) id.value = '';
+    if (password) password.value = '';
   }
 
   function finishSplash() {
@@ -92,6 +100,7 @@
         global.currentAuthUser = null;
         if (userLabel) userLabel.textContent = '';
         button.hidden = true;
+        clearLoginInputs();
         showLogin('ログアウトしました。');
         if (!auth || !auth.token) return;
         google.script.run
@@ -114,7 +123,7 @@
           return;
         }
         auth.user = result.user || auth.user || null;
-        saveAuth(auth, !!auth.remember);
+        saveAuth(auth);
         startApp(startCallback, auth.user);
       })
       .withFailureHandler(function(error) {
@@ -128,7 +137,6 @@
     var id = document.getElementById('loginIdInput');
     var password = document.getElementById('loginCodeInput');
     var button = document.getElementById('loginButton');
-    var keep = document.getElementById('keepLoginCheck');
     var loginId = id ? id.value.trim() : '';
     var code = password ? password.value : '';
     if (!loginId || !code) {
@@ -140,14 +148,13 @@
     google.script.run
       .withSuccessHandler(function(result) {
         if (button) button.disabled = false;
-        var remember = !!(keep && keep.checked);
         var auth = {
           token: result.token,
           user: result.user || null,
-          remember: remember,
+          remember: false,
           expiresAt: result.expiresAt || 0
         };
-        saveAuth(auth, remember);
+        saveAuth(auth);
         startApp(startCallback, auth.user);
       })
       .withFailureHandler(function(error) {
