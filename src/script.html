@@ -91,6 +91,18 @@ else startYgSplash();
 
   function $(id) { return document.getElementById(id); }
 
+  function isArchiveAdminUser() {
+    var user = window.currentAuthUser || null;
+    return !user || !user.role || user.role === '管理者';
+  }
+
+  function applyArchiveAdminAccess() {
+    var allowed = isArchiveAdminUser();
+    document.querySelectorAll('.js-admin-archive').forEach(function(element) {
+      element.hidden = !allowed;
+    });
+  }
+
   function showMessage(text, type) {
     var el = $('message');
     el.textContent = text;
@@ -1667,6 +1679,7 @@ else startYgSplash();
   }
 
   function showScreen(name) {
+    if (name === 'archive' && !isArchiveAdminUser()) name = 'honobono';
     document.querySelectorAll('.screen').forEach(function(screen) {
       screen.hidden = screen.id !== 'screen-' + name;
     });
@@ -1935,6 +1948,7 @@ else startYgSplash();
   }
 
   function init() {
+    applyArchiveAdminAccess();
     initNav();
     initActions();
     runServerSilent('bootstrapApp').then(function(result) {

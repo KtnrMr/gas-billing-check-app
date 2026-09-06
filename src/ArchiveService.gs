@@ -49,7 +49,7 @@ function getArchiveSettings_() {
 }
 
 function getArchiveAdminData(token) {
-  requirePermissionAccess_(token);
+  requireArchiveAdmin_(token);
   validateConfig_();
   var settings = getArchiveSettings_();
   var active = settings.filter(function(item) { return item.active; });
@@ -164,7 +164,7 @@ function resequenceArchiveSettings_(sheet) {
  * 使用中年の対象月データを シート名_YYYY へ移し、使用中設定を翌年へ進める。
  */
 function createYearArchive(token, payload) {
-  requirePermissionAccess_(token);
+  requireArchiveAdmin_(token);
   validateConfig_();
   return withScriptLock_(function() {
     ensureArchiveSettingInitialized_();
