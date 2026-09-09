@@ -143,6 +143,9 @@
       setLoginMessage('職員IDとパスワードを入力してください。', true);
       return;
     }
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
     if (button) button.disabled = true;
     setLoginMessage('', false);
     google.script.run
