@@ -39,6 +39,18 @@ function hideBootOverlay() {
   ygSplashHideRequested = true;
   finishHideBootOverlay();
 }
+function showBootOverlay() {
+  const el = document.getElementById('bootOverlay');
+  if (!el) return;
+  ygSplashHidden = false;
+  ygSplashOrbitCompleted = false;
+  ygSplashHideRequested = false;
+  el.classList.remove('hidden', 'yg-splash-out');
+  el.setAttribute('aria-hidden', 'false');
+  const inner = el.querySelector('.yg-splash-inner');
+  if (inner) inner.parentNode.replaceChild(inner.cloneNode(true), inner);
+  startYgSplash();
+}
 function startYgSplash() {
   const el = document.getElementById('bootOverlay');
   if (!el || el.classList.contains('hidden')) return;
