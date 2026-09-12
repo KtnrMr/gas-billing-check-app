@@ -97,7 +97,8 @@ function billingRecordToCacheRow_(month, syncedAt, record) {
     '取込判定': record.importJudgment || '',
     '警告': serializeWarningsForCache_(record.warnings),
     '調整JSON': serializeAdjustmentsForCache_(record.adjustments),
-    '通常現金': record.isUsuallyCash ? '1' : ''
+    '通常現金': record.isUsuallyCash ? '1' : '',
+    '計算仕様': 'MONTHLY_DELAYED_V1'
   };
 }
 
@@ -108,6 +109,8 @@ function billingRecordFromCacheRow_(row) {
   var pastOnlyAmount = Number(row['過去分金額']) || 0;
   var isMonthlyStop = isTruthyFlag_(row['当月停止']);
   var finalAmount = Number(row['最終請求額']) || 0;
+  var adjustments = deserializeAdjustmentsFromCache_(row['調整JSON']);
+  var delayedItems = getDelayedBillingItems_(adjustments);
   return {
     matchId: matchId,
     rawId: normalizeString_(row['顧客番号']),
@@ -121,14 +124,16 @@ function billingRecordFromCacheRow_(row) {
     honobonoAmount: Number(row['ほのぼの請求額']) || 0,
     additionalAmount: additionalOnlyAmount + pastOnlyAmount,
     additionalOnlyAmount: additionalOnlyAmount,
+    delayedAmount: pastOnlyAmount,
+    delayedItems: delayedItems,
     finalAmount: finalAmount,
     isInputTarget: isTruthyFlag_(row['入力対象']),
     isMonthlyStop: isMonthlyStop,
     showOnInputList: isTruthyFlag_(row['入力一覧表示']),
     canCopyAmount: isTruthyFlag_(row['金額コピー可']),
     isReconcileTarget: isTruthyFlag_(row['照合対象']),
-    inputDisplay: isMonthlyStop ? APP.MONTHLY_STOP_LABEL : String(finalAmount),
-    adjustments: deserializeAdjustmentsFromCache_(row['調整JSON']),
+    inputDisplay: isMonthlyStop && pastOnlyAmount <= 0 ? APP.MONTHLY_STOP_LABEL : String(finalAmount),
+    adjustments: adjustments,
     warnings: deserializeWarningsFromCache_(row['警告']),
     importJudgment: normalizeString_(row['取込判定'])
   };
@@ -143,11 +148,17 @@ function readBillingRecordCache_(targetMonth) {
     return normalizeString_(value);
   });
   // 旧キャッシュには通常現金の情報がないため、最新データから再作成する。
-  if (headers.indexOf('通常現金') < 0) return null;
+  if (headers.indexOf('通常現金') < 0 || headers.indexOf('計算仕様') < 0) return null;
+
+  var cachedRows = readSheetObjects_(sheet).filter(function(row) {
+    return yearMonthKeyEquals_(row['対象月'], month);
+  });
+  if (cachedRows.some(function(row) {
+    return normalizeString_(row['計算仕様']) !== 'MONTHLY_DELAYED_V1';
+  })) return null;
 
   var records = [];
-  readSheetObjects_(sheet).forEach(function(row) {
-    if (!yearMonthKeyEquals_(row['対象月'], month)) return;
+  cachedRows.forEach(function(row) {
     var record = billingRecordFromCacheRow_(row);
     if (record) records.push(record);
   });

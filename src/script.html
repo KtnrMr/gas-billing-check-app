@@ -66,7 +66,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else startYgSplash();
 
 (function() {
-  var UI_BUILD = '0.6.0';
+  var UI_BUILD = '0.7.0';
   var state = {
     targetMonth: '',
     month: null,
@@ -180,7 +180,7 @@ else startYgSplash();
   }
 
   function formatBillingAmount(record) {
-    if (record.isMonthlyStop) return '当月停止';
+    if (record.isMonthlyStop && !(Number(record.delayedAmount) > 0)) return '当月停止';
     return formatYen(record.finalAmount);
   }
 
@@ -290,7 +290,7 @@ else startYgSplash();
       ['ほのぼの取込', (s.honobonoImportCount || s.honobonoCount || 0) + '件', formatYen(s.honobonoImportTotal || s.honobonoTotal || 0)],
       ['請求件数', (s.billingCount != null ? s.billingCount : s.totalBillingCount || 0) + '件', formatYen(s.totalBillingAmount || 0)],
       ['合算請求', (s.combinedCount || 0) + '件', formatYen(s.combinedAmount || 0)],
-      ['過去分のみ', (s.pastOnlyCount || 0) + '件', formatYen(s.pastOnlyAmount || 0)],
+      ['月遅れ請求', (s.pastOnlyCount || 0) + '件', formatYen(s.pastOnlyAmount || 0)],
       ['現金支払い', (s.cashCount || 0) + '件', formatYen(s.cashTotal || s.cashAmount || 0)],
       ['当月停止', (s.monthlyStopCount || s.holdCount || 0) + '件', formatYen(s.monthlyStopAmount || s.holdTotal || 0)]
     ];
@@ -694,23 +694,50 @@ else startYgSplash();
     return JSON.parse(JSON.stringify(data || []));
   }
 
+  function normalizeDelayedDraftItems_(row) {
+    var items = cloneHonobonoDraftData((row && row.delayedItems) || []);
+    if (!items.length && Number(row && row.pastOnlyAmount) > 0) {
+      items = [{ id: '', targetBillingMonth: '', amount: Number(row.pastOnlyAmount) }];
+    }
+    return items.map(function(item) {
+      return {
+        id: item.id || '',
+        targetBillingMonth: item.targetBillingMonth || '',
+        amount: Number(item.amount) || 0,
+        legacy: !!item.legacy || !item.targetBillingMonth
+      };
+    });
+  }
+
+  function normalizeHonobonoDraftRow_(row, isPastOnly) {
+    var normalized = Object.assign({}, row || {});
+    normalized.isPastOnly = !!isPastOnly;
+    normalized.delayedItems = normalizeDelayedDraftItems_(normalized);
+    normalized.delayedAmount = normalized.delayedItems.reduce(function(sum, item) {
+      return sum + (Number(item.amount) || 0);
+    }, 0);
+    if (isPastOnly) normalized.status = '月遅れ請求のみ';
+    return normalized;
+  }
+
   function resetHonobonoDraftFromServer(result) {
     var pastOnlyRows = cloneHonobonoDraftData((result && result.pastOnlyRows) || []).map(function(row) {
-      return {
+      return normalizeHonobonoDraftRow_({
         matchId: row.matchId,
         rawId: row.rawId,
         name: row.name,
         kana: row.kana || '',
-        status: '過去分のみ',
-        isPastOnly: true,
-        pastOnlyAmount: row.finalAmount || 0,
+        status: '月遅れ請求のみ',
+        delayedItems: row.delayedItems || [],
         honobonoAmount: 0,
         finalAmount: row.finalAmount || 0,
         memo: row.memo || ''
-      };
+      }, true);
     });
     state.honobonoDraft = {
-      rows: cloneHonobonoDraftData((result && result.rows) || []),
+      rows: cloneHonobonoDraftData((result && result.rows) || []).map(function(row) {
+        return normalizeHonobonoDraftRow_(row, false);
+      }),
       pastOnlyRows: pastOnlyRows,
       removedPastOnly: [],
       serverPastOnlyIds: pastOnlyRows.map(function(row) { return row.matchId; }),
@@ -787,7 +814,7 @@ else startYgSplash();
       row.classList.remove('row-search-highlight');
     }, 3000);
     if (focusAmount) {
-      var input = row.querySelector('.past-only-amount');
+      var input = row.querySelector('.delayed-month-input, .delayed-amount-input');
       if (input) input.focus();
     }
   }
@@ -804,22 +831,24 @@ else startYgSplash();
   }
 
   function computeDraftFinalAmount(row) {
-    if (row.isPastOnly || row.status === '過去分のみ') {
-      return Number(row.pastOnlyAmount) || 0;
-    }
+    var delayed = (row.delayedItems || []).reduce(function(sum, item) {
+      return sum + (Number(item.amount) || 0);
+    }, 0);
+    if (row.isPastOnly || row.status === '月遅れ請求のみ') return delayed;
     var honobono = Number(row.honobonoAmount) || 0;
-    if (row.status === '現金支払い' || row.status === '当月停止') return 0;
+    if (row.status === '現金支払い') return 0;
+    var total = row.status === '当月停止' ? 0 : honobono;
     if (row.status === '合算') {
       var add = (row.additionalItems || []).reduce(function(sum, item) {
         return sum + (Number(item.amount) || 0);
       }, 0);
-      return honobono + add;
+      total += add;
     }
-    return honobono;
+    return total + delayed;
   }
 
   function honobonoRowClass(row) {
-    if (row.isPastOnly || row.status === '過去分のみ') return 'row-past-only';
+    if (row.isPastOnly || row.status === '月遅れ請求のみ') return 'row-past-only';
     if (row.status === '現金支払い') return 'row-billing-cash';
     if (row.status === '当月停止') return 'row-billing-hold';
     if (row.status === '合算') return 'row-billing-combined';
@@ -852,12 +881,12 @@ else startYgSplash();
   function renderHonobonoBillingRows(wrapId, rows, editable) {
     var wrap = $(wrapId);
     if (!rows.length) {
-      wrap.innerHTML = '<div class="panel">データがありません。ほのぼのCSVを取込するか、過去分のみを追加してください。</div>';
+      wrap.innerHTML = '<div class="panel">データがありません。ほのぼのCSVを取込するか、月遅れ請求の利用者を追加してください。</div>';
       return;
     }
     var statusOptions = ['通常', '合算', '当月停止', '現金支払い'];
     var html = ['<table class="data-table"><thead><tr>',
-      '<th>顧客番号</th><th>氏名</th><th>ほのぼの請求額</th><th>請求区分</th><th>追加金額</th><th>最終請求額</th><th>メモ</th><th></th>',
+      '<th>顧客番号</th><th>氏名</th><th>当月請求額</th><th>当月分の扱い</th><th>追加金額</th><th>月遅れ請求</th><th>最終請求額</th><th>メモ</th><th></th>',
       '</tr></thead><tbody>'];
     rows.forEach(function(row) {
       var rowCls = honobonoRowClass(row);
@@ -866,13 +895,9 @@ else startYgSplash();
       html.push('<td>' + row.name + '</td>');
       if (row.isPastOnly) {
         html.push('<td>—</td>');
-        html.push('<td>過去分のみ</td><td>');
-        if (editable && isEditable()) {
-          html.push('<input class="past-only-amount amount-text-input" type="text" inputmode="numeric" data-past-only-match-id="' + row.matchId + '" value="' + escapeHtml_(formatAmountInputDisplay_(row.pastOnlyAmount)) + '">');
-        } else {
-          html.push(formatYen(row.pastOnlyAmount || 0));
-        }
-        html.push('</td><td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
+        html.push('<td>月遅れ請求のみ</td><td>—</td>');
+        html.push(renderDelayedBillingCell_(row, editable));
+        html.push('<td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
         html.push(renderBillingMemoCell_(row, editable));
         html.push('<td>');
         if (editable && isEditable()) {
@@ -915,13 +940,47 @@ else startYgSplash();
           html.push(items.map(function(item) { return formatYen(item.amount); }).join(' + '));
         }
       }
-      html.push('</td><td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
+      html.push('</td>');
+      html.push(renderDelayedBillingCell_(row, editable));
+      html.push('<td data-final-amount-cell>' + formatYen(computeDraftFinalAmount(row)) + '</td>');
       html.push(renderBillingMemoCell_(row, editable));
       html.push('<td></td></tr>');
     });
     html.push('</tbody></table>');
     wrap.innerHTML = html.join('');
     if (editable && isEditable()) bindHonobonoBillingEditors(wrapId);
+  }
+
+  function previousMonthValue_(month) {
+    var parts = String(month || '').split('-');
+    if (parts.length !== 2) return '';
+    var date = new Date(Number(parts[0]), Number(parts[1]) - 2, 1);
+    return date.getFullYear() + '-' + ('0' + (date.getMonth() + 1)).slice(-2);
+  }
+
+  function renderDelayedBillingCell_(row, editable) {
+    var items = row.delayedItems || [];
+    var html = ['<td class="delayed-cell">'];
+    if (editable && isEditable()) {
+      html.push('<div class="delayed-list" data-delayed-list="' + row.matchId + '">');
+      items.forEach(function(item, index) {
+        html.push('<span class="delayed-row" data-delayed-index="' + index + '" data-delayed-id="' + escapeHtml_(item.id || '') + '">');
+        html.push('<input class="delayed-month-input" type="month" aria-label="月遅れ元月" max="' + escapeHtml_(previousMonthValue_(state.targetMonth)) + '" value="' + escapeHtml_(item.targetBillingMonth || '') + '">');
+        html.push('<input class="delayed-amount-input amount-text-input" type="text" inputmode="numeric" aria-label="月遅れ金額" value="' + escapeHtml_(formatAmountInputDisplay_(item.amount)) + '" placeholder="金額">');
+        html.push('<button type="button" class="delayed-remove" data-delayed-match-id="' + row.matchId + '" data-delayed-index="' + index + '" aria-label="月遅れ明細を削除">×</button>');
+        html.push('</span>');
+      });
+      html.push('<button type="button" class="delayed-add" data-delayed-match-id="' + row.matchId + '">＋月遅れ</button></div>');
+    } else if (items.length) {
+      html.push(items.map(function(item) {
+        var monthLabel = item.targetBillingMonth ? item.targetBillingMonth.replace('-', '年') + '月分' : '元月未設定';
+        return '<span class="delayed-readonly-row">' + escapeHtml_(monthLabel) + ' ' + formatYen(item.amount) + '</span>';
+      }).join(''));
+    } else {
+      html.push('—');
+    }
+    html.push('</td>');
+    return html.join('');
   }
 
   function findDraftRow_(matchId) {
@@ -981,6 +1040,27 @@ else startYgSplash();
     if (!list) return [];
     return Array.prototype.map.call(list.querySelectorAll('.additional-input'), function(input) {
       return input.value;
+    });
+  }
+
+  function collectDelayedItems(matchId) {
+    var list = document.querySelector('[data-delayed-list="' + matchId + '"]');
+    if (!list) return [];
+    return Array.prototype.map.call(list.querySelectorAll('.delayed-row'), function(row) {
+      var monthInput = row.querySelector('.delayed-month-input');
+      var amountInput = row.querySelector('.delayed-amount-input');
+      return {
+        id: row.getAttribute('data-delayed-id') || '',
+        targetBillingMonth: monthInput ? monthInput.value : '',
+        amount: amountInput ? parseAmountInput_(amountInput.value) : 0
+      };
+    });
+  }
+
+  function updateDelayedItemsFromDom_(matchId) {
+    var items = collectDelayedItems(matchId);
+    updateDraftRowSilent(matchId, function(row) {
+      return Object.assign({}, row, { delayedItems: items });
     });
   }
 
@@ -1069,12 +1149,38 @@ else startYgSplash();
         });
       });
     });
-    wrap.querySelectorAll('.past-only-amount').forEach(function(input) {
+    wrap.querySelectorAll('.delayed-month-input, .delayed-amount-input').forEach(function(input) {
       input.addEventListener('input', function() {
-        var matchId = input.getAttribute('data-past-only-match-id');
-        var amount = parseAmountInput_(input.value);
-        updateDraftRowSilent(matchId, function(row) {
-          return Object.assign({}, row, { pastOnlyAmount: amount, finalAmount: amount });
+        var list = input.closest('[data-delayed-list]');
+        if (list) updateDelayedItemsFromDom_(list.getAttribute('data-delayed-list'));
+      });
+      input.addEventListener('change', function() {
+        var list = input.closest('[data-delayed-list]');
+        if (list) updateDelayedItemsFromDom_(list.getAttribute('data-delayed-list'));
+      });
+    });
+    wrap.querySelectorAll('.delayed-add').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-delayed-match-id');
+        updateDraftRow(matchId, function(row) {
+          var items = (row.delayedItems || []).slice();
+          items.push({ id: '', targetBillingMonth: '', amount: 0 });
+          return Object.assign({}, row, { delayedItems: items });
+        });
+        var rowEl = wrap.querySelector('tr[data-match-id="' + matchId + '"]');
+        var emptyMonth = rowEl && rowEl.querySelector('.delayed-month-input[value=""]');
+        if (emptyMonth) emptyMonth.focus();
+      });
+    });
+    wrap.querySelectorAll('.delayed-remove').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var matchId = button.getAttribute('data-delayed-match-id');
+        var index = Number(button.getAttribute('data-delayed-index'));
+        updateDraftRow(matchId, function(row) {
+          var items = (row.delayedItems || []).filter(function(item, itemIndex) {
+            return itemIndex !== index;
+          });
+          return Object.assign({}, row, { delayedItems: items });
         });
       });
     });
@@ -1117,6 +1223,41 @@ else startYgSplash();
     var dirtyMatchIds = state.honobonoDraft.dirtyMatchIds || {};
     var dirtyPastOnlyIds = state.honobonoDraft.dirtyPastOnlyIds || {};
     var dirtyMemoIds = state.honobonoDraft.dirtyMemoIds || {};
+    var invalidDelayed = getHonobonoDisplayRows().some(function(row) {
+      if (!dirtyMatchIds[row.matchId] && !dirtyPastOnlyIds[row.matchId]) return false;
+      return (row.delayedItems || []).some(function(item) {
+        var month = item.targetBillingMonth || '';
+        var amount = Number(item.amount) || 0;
+        return !month || !(amount > 0) || month >= state.targetMonth;
+      });
+    });
+    if (invalidDelayed) {
+      showMessage('月遅れ請求は、対象月より前の元月と1円以上の金額を入力してください。', 'error');
+      return Promise.resolve(false);
+    }
+    var duplicateDelayedMonth = getHonobonoDisplayRows().some(function(row) {
+      if (!dirtyMatchIds[row.matchId] && !dirtyPastOnlyIds[row.matchId]) return false;
+      var seen = {};
+      return (row.delayedItems || []).some(function(item) {
+        var month = item.targetBillingMonth || '';
+        if (!month) return false;
+        if (seen[month]) return true;
+        seen[month] = true;
+        return false;
+      });
+    });
+    if (duplicateDelayedMonth) {
+      showMessage('同じ元月の月遅れ請求は1件にまとめてください。', 'error');
+      return Promise.resolve(false);
+    }
+    var cashWithDelayed = getHonobonoDisplayRows().some(function(row) {
+      if (!dirtyMatchIds[row.matchId] && !dirtyPastOnlyIds[row.matchId]) return false;
+      return row.status === '現金支払い' && (row.delayedItems || []).length > 0;
+    });
+    if (cashWithDelayed) {
+      showMessage('現金支払いの人には月遅れ請求を設定できません。月遅れ明細を削除してください。', 'error');
+      return Promise.resolve(false);
+    }
     var payload = {
       changedRows: (state.honobonoDraft.rows || []).filter(function(row) {
         return dirtyMatchIds[row.matchId];
@@ -1126,7 +1267,14 @@ else startYgSplash();
           status: row.status,
           additionalAmounts: row.status === '合算'
             ? (row.additionalItems || []).map(function(item) { return item.amount; })
-            : []
+            : [],
+          delayedItems: (row.delayedItems || []).map(function(item) {
+            return {
+              id: item.id || '',
+              targetBillingMonth: item.targetBillingMonth || '',
+              amount: item.amount || 0
+            };
+          })
         };
       }),
       pastOnlyRows: (state.honobonoDraft.pastOnlyRows || []).filter(function(row) {
@@ -1135,7 +1283,13 @@ else startYgSplash();
         return {
           matchId: row.matchId,
           name: row.name,
-          amount: row.pastOnlyAmount || 0
+          delayedItems: (row.delayedItems || []).map(function(item) {
+            return {
+              id: item.id || '',
+              targetBillingMonth: item.targetBillingMonth || '',
+              amount: item.amount || 0
+            };
+          })
         };
       }),
       removedPastOnly: state.honobonoDraft.removedPastOnly || [],
@@ -1187,9 +1341,10 @@ else startYgSplash();
       rawId: user.rawId,
       name: user.name,
       kana: user.kana || '',
-      status: '過去分のみ',
+      status: '月遅れ請求のみ',
       isPastOnly: true,
-      pastOnlyAmount: 0,
+      delayedItems: [{ id: '', targetBillingMonth: '', amount: 0 }],
+      delayedAmount: 0,
       honobonoAmount: 0,
       finalAmount: 0
     });
@@ -1752,7 +1907,7 @@ else startYgSplash();
     var stopRows = listRows(data.monthlyStopList, function(row) { return yen(row.honobonoAmount || 0); });
     var cashRows = listRows(data.cashList, function(row) { return yen(row.honobonoAmount || 0); });
     var listHeaders = ['顧客番号', '氏名', '請求金額', 'メモ'];
-    var billingCount = (data.billers || []).length + (data.pastOnlyList || []).length;
+    var billingCount = s.billingCount != null ? s.billingCount : (data.billers || []).length;
     if (!billingCount && s.billingCount) billingCount = s.billingCount;
 
     return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>' + escapeHtml_(title) + '</title>' +
@@ -1781,15 +1936,15 @@ else startYgSplash();
       '<h1>' + escapeHtml_(title) + '</h1>' +
       '<div class="summary-grid print-section">' +
       '<div class="summary-box"><div class="label">請求件数</div><div class="value">' + billingCount + '件</div>' +
-      '<div class="sub">合算 ' + (s.combinedCount || 0) + '件 / 過去分のみ ' + (s.pastOnlyCount || 0) + '件</div></div>' +
+      '<div class="sub">合算 ' + (s.combinedCount || 0) + '件 / 月遅れ ' + (s.pastOnlyCount || 0) + '件</div></div>' +
       '<div class="summary-box"><div class="label">請求合計額</div><div class="value">' + yen(s.totalBillingAmount || 0) + '</div>' +
-      '<div class="sub">合算分 ' + yen(s.combinedAmount || 0) + ' / 過去分のみ ' + yen(s.pastOnlyAmount || 0) + '</div></div>' +
+      '<div class="sub">合算分 ' + yen(s.combinedAmount || 0) + ' / 月遅れ分 ' + yen(s.pastOnlyAmount || 0) + '</div></div>' +
       '<div class="summary-box"><div class="label">当月停止 / 現金支払い</div><div class="value">' +
       (s.monthlyStopCount || 0) + '件 / ' + (s.cashCount || 0) + '件</div>' +
       '<div class="sub">現金参考額 ' + yen(s.cashAmount || 0) + '</div></div>' +
       '</div>' +
       printSection('請求者一覧（' + (data.billers || []).length + '件）', listTable(listHeaders, billerRows)) +
-      printSection('過去分のみ請求一覧（' + (data.pastOnlyList || []).length + '件）', listTable(listHeaders, pastOnlyRows)) +
+      printSection('月遅れ請求一覧（' + (data.pastOnlyList || []).length + '件）', listTable(listHeaders, pastOnlyRows)) +
       printSection('当月停止一覧（' + (data.monthlyStopList || []).length + '件）', listTable(listHeaders, stopRows)) +
       printSection('現金支払い一覧（' + (data.cashList || []).length + '件）', listTable(listHeaders, cashRows)) +
       '<p class="no-print" style="margin-top:20px;color:#6b7280;">ブラウザの印刷ダイアログから PDF 保存もできます。</p>' +

@@ -69,23 +69,28 @@ function attachBillingMemosToHonobonoList_(targetMonth, result) {
 }
 
 function formatBillingAmountDetail_(record) {
-  if (record.isMonthlyStop) return APP.MONTHLY_STOP_LABEL;
+  if (isStopOnlyBillingRecord_(record)) return APP.MONTHLY_STOP_LABEL;
   if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) return APP.ADJUSTMENT_TYPES.CASH;
 
   var additionalItems = (record.adjustments || []).filter(function(item) {
     return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
   });
-  if (additionalItems.length > 0) {
-    var parts = [];
-    if (record.honobonoAmount > 0) {
-      parts.push(formatYenDisplay_(record.honobonoAmount));
-    }
-    additionalItems.forEach(function(item) {
-      parts.push(formatYenDisplay_(item.amount));
-    });
-    if (parts.length > 1) {
-      return formatYenDisplay_(record.finalAmount) + '（' + parts.join('＋') + '）';
-    }
+  var delayedItems = getDelayedBillingItems_(record.adjustments || []);
+  var parts = [];
+  if (!record.isMonthlyStop && record.honobonoAmount > 0) {
+    parts.push('当月 ' + formatYenDisplay_(record.honobonoAmount));
+  }
+  additionalItems.forEach(function(item) {
+    parts.push('追加 ' + formatYenDisplay_(item.amount));
+  });
+  delayedItems.forEach(function(item) {
+    var month = item.targetBillingMonth
+      ? Number(item.targetBillingMonth.slice(5, 7)) + '月分 '
+      : '元月未設定 ';
+    parts.push(month + formatYenDisplay_(item.amount));
+  });
+  if (parts.length > 0) {
+    return formatYenDisplay_(record.finalAmount) + '（' + parts.join('＋') + '）';
   }
   return formatYenDisplay_(record.finalAmount);
 }
@@ -99,7 +104,7 @@ function isBillingCashRecord_(record) {
 }
 
 function isBillingPastOnlyRecord_(record) {
-  return record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY;
+  return Number(record.delayedAmount) > 0;
 }
 
 function isHonobonoBillingRowRecord_(record) {
@@ -115,7 +120,30 @@ function buildBillingPrintEntry_(record, memo) {
     finalAmount: record.finalAmount,
     amountDetail: formatBillingAmountDetail_(record),
     memo: memo || '',
-    billingStatus: record.billingStatus
+    billingStatus: record.billingStatus,
+    delayedAmount: record.delayedAmount || 0
+  };
+}
+
+function buildDelayedBillingPrintEntry_(record, memo) {
+  var delayedItems = getDelayedBillingItems_(record.adjustments || []);
+  var details = delayedItems.map(function(item) {
+    var month = item.targetBillingMonth
+      ? Number(item.targetBillingMonth.slice(0, 4)) + '年' + Number(item.targetBillingMonth.slice(5, 7)) + '月分 '
+      : '元月未設定 ';
+    return month + formatYenDisplay_(item.amount);
+  });
+  return {
+    matchId: record.matchId,
+    rawId: record.rawId,
+    name: record.name,
+    kana: record.masterKana || '',
+    finalAmount: record.delayedAmount || 0,
+    amountDetail: formatYenDisplay_(record.delayedAmount || 0)
+      + (details.length ? '（' + details.join('＋') + '）' : ''),
+    memo: memo || '',
+    billingStatus: record.billingStatus,
+    delayedAmount: record.delayedAmount || 0
   };
 }
 
@@ -134,7 +162,6 @@ function classifyBillingPrintLists_(records, memoMap) {
         honobonoAmount: record.honobonoAmount,
         memo: memo
       });
-      return;
     }
     if (isBillingCashRecord_(record)) {
       cashList.push({
@@ -146,10 +173,9 @@ function classifyBillingPrintLists_(records, memoMap) {
       return;
     }
     if (isBillingPastOnlyRecord_(record)) {
-      pastOnlyList.push(buildBillingPrintEntry_(record, memo));
-      return;
+      pastOnlyList.push(buildDelayedBillingPrintEntry_(record, memo));
     }
-    if (isHonobonoBillingRowRecord_(record)) {
+    if (record.isInputTarget) {
       billers.push(buildBillingPrintEntry_(record, memo));
     }
   });
@@ -171,18 +197,12 @@ function buildBillingPrintSummary_(records, lists) {
   var summary = summarizeBillingRecords_(records || [], { rows: {} });
   var billers = lists.billers || [];
   var pastOnlyList = lists.pastOnlyList || [];
-  var combinedCount = 0;
-  billers.forEach(function(entry) {
-    if (entry.billingStatus === '合算請求' || entry.billingStatus === '追加請求あり') {
-      combinedCount += 1;
-    }
-  });
   return {
-    billingCount: billers.length + pastOnlyList.length,
+    billingCount: summary.billingCount || billers.length,
     totalBillingAmount: summary.totalBillingAmount || 0,
-    combinedCount: combinedCount,
+    combinedCount: summary.combinedCount || 0,
     combinedAmount: summary.combinedAmount || 0,
-    pastOnlyCount: pastOnlyList.length,
+    pastOnlyCount: summary.pastOnlyCount || pastOnlyList.length,
     pastOnlyAmount: summary.pastOnlyAmount || 0,
     monthlyStopCount: (lists.monthlyStopList || []).length,
     cashCount: (lists.cashList || []).length,

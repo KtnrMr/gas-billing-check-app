@@ -6,6 +6,22 @@ function getAdditionalOnlyAmount_(adjList) {
   }, 0);
 }
 
+function getDelayedBillingItems_(adjList) {
+  return (adjList || []).filter(function(item) {
+    return item.type === APP.ADJUSTMENT_TYPES.PAST_ONLY;
+  });
+}
+
+function getDelayedBillingAmount_(adjList) {
+  return getDelayedBillingItems_(adjList).reduce(function(sum, item) {
+    return sum + (Number(item.amount) || 0);
+  }, 0);
+}
+
+function isStopOnlyBillingRecord_(record) {
+  return !!record && !!record.isMonthlyStop && !(Number(record.delayedAmount) > 0);
+}
+
 function buildBillingRecordContext_(targetMonth) {
   var month = normalizeYearMonth_(targetMonth);
   var perf = startPerfLog_('buildBillingRecordContext_', { month: month });
@@ -80,15 +96,10 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
     var isUsuallyCash = !!cashMaster[matchId];
     if (!hasCash && !hasHold && cashMaster[matchId]) hasCash = true;
 
-    var hasPastOnly = adjList.some(function(item) {
-      return item.type === APP.ADJUSTMENT_TYPES.PAST_ONLY;
-    });
+    var delayedItems = getDelayedBillingItems_(adjList);
+    var hasPastOnly = delayedItems.length > 0;
     var additionalOnlyAmount = getAdditionalOnlyAmount_(adjList);
-    var pastOnlyAmount = adjList.filter(function(item) {
-      return item.type === APP.ADJUSTMENT_TYPES.PAST_ONLY;
-    }).reduce(function(sum, item) {
-      return sum + item.amount;
-    }, 0);
+    var pastOnlyAmount = getDelayedBillingAmount_(adjList);
 
     var billingStatus = '通常請求';
     var finalAmount = 0;
@@ -104,25 +115,36 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
     }
 
     if (hasHold) {
-      billingStatus = APP.ADJUSTMENT_TYPES.HOLD;
-      finalAmount = 0;
       isMonthlyStop = true;
-      // 通常現金の利用者は e集ちゃんへ入力しないため、当月停止でも照合対象外。
-      showOnInputList = !isUsuallyCash;
-      isReconcileTarget = !isUsuallyCash;
+      if (pastOnlyAmount > 0) {
+        billingStatus = '当月停止＋月遅れ請求';
+        finalAmount = pastOnlyAmount;
+        isInputTarget = true;
+        showOnInputList = true;
+        canCopyAmount = true;
+        isReconcileTarget = true;
+      } else {
+        billingStatus = APP.ADJUSTMENT_TYPES.HOLD;
+        finalAmount = 0;
+        // 通常現金の利用者は e集ちゃんへ入力しないため、当月停止でも照合対象外。
+        showOnInputList = !isUsuallyCash;
+        isReconcileTarget = !isUsuallyCash;
+      }
     } else if (hasCash) {
       billingStatus = APP.ADJUSTMENT_TYPES.CASH;
       finalAmount = 0;
     } else if (hasPastOnly && !honobonoRow) {
-      billingStatus = APP.ADJUSTMENT_TYPES.PAST_ONLY;
+      billingStatus = '月遅れ請求のみ';
       finalAmount = pastOnlyAmount + additionalOnlyAmount;
       isInputTarget = finalAmount !== 0 || adjList.length > 0;
       showOnInputList = isInputTarget;
       canCopyAmount = isInputTarget;
       isReconcileTarget = isInputTarget;
     } else {
-      finalAmount = honobonoAmount + additionalOnlyAmount;
-      if (additionalOnlyAmount > 0 && honobonoAmount > 0) billingStatus = '合算請求';
+      finalAmount = honobonoAmount + additionalOnlyAmount + pastOnlyAmount;
+      if (pastOnlyAmount > 0 && additionalOnlyAmount > 0) billingStatus = '合算＋月遅れ請求';
+      else if (pastOnlyAmount > 0) billingStatus = '通常＋月遅れ請求';
+      else if (additionalOnlyAmount > 0 && honobonoAmount > 0) billingStatus = '合算請求';
       else if (additionalOnlyAmount > 0) billingStatus = '追加請求あり';
       else billingStatus = '通常請求';
       isInputTarget = true;
@@ -150,13 +172,15 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       honobonoAmount: honobonoAmount,
       additionalAmount: additionalOnlyAmount + pastOnlyAmount,
       additionalOnlyAmount: additionalOnlyAmount,
+      delayedAmount: pastOnlyAmount,
+      delayedItems: delayedItems,
       finalAmount: finalAmount,
       isInputTarget: isInputTarget,
       isMonthlyStop: isMonthlyStop,
       showOnInputList: showOnInputList,
       canCopyAmount: canCopyAmount,
       isReconcileTarget: isReconcileTarget,
-      inputDisplay: isMonthlyStop ? APP.MONTHLY_STOP_LABEL : String(finalAmount),
+      inputDisplay: isMonthlyStop && pastOnlyAmount <= 0 ? APP.MONTHLY_STOP_LABEL : String(finalAmount),
       adjustments: adjList,
       warnings: warnings,
       importJudgment: honobonoRow ? honobonoRow.judgment : ''
@@ -200,15 +224,23 @@ function getDashboard_(targetMonth) {
 }
 
 function toHonobonoBillingRow_(record) {
-  var status = '通常';
-  if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) status = APP.ADJUSTMENT_TYPES.CASH;
-  else if (record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD) status = APP.ADJUSTMENT_TYPES.HOLD;
-  else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) status = '過去分のみ';
-  else if (record.billingStatus === '合算請求' || record.billingStatus === '追加請求あり') status = '合算';
   var additionalItems = (record.adjustments || []).filter(function(item) {
     return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
   }).map(function(item) {
     return { id: item.id, amount: item.amount, memo: item.memo || '' };
+  });
+  var status = '通常';
+  if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) status = APP.ADJUSTMENT_TYPES.CASH;
+  else if (record.isMonthlyStop) status = APP.ADJUSTMENT_TYPES.HOLD;
+  else if (!record.honobonoName && record.delayedAmount > 0) status = '月遅れ請求のみ';
+  else if (additionalItems.length) status = '合算';
+  var delayedItems = getDelayedBillingItems_(record.adjustments || []).map(function(item) {
+    return {
+      id: item.id,
+      targetBillingMonth: item.targetBillingMonth || '',
+      amount: item.amount,
+      legacy: !item.targetBillingMonth
+    };
   });
   return {
     matchId: record.matchId,
@@ -217,10 +249,12 @@ function toHonobonoBillingRow_(record) {
     kana: record.masterKana || '',
     honobonoAmount: record.honobonoAmount,
     status: status,
+    billingStatus: record.billingStatus,
     additionalAmount: record.additionalOnlyAmount,
     additionalItems: additionalItems,
+    delayedAmount: record.delayedAmount || 0,
+    delayedItems: delayedItems,
     finalAmount: record.finalAmount,
-    billingStatus: record.billingStatus,
     isUsuallyCash: !!record.isUsuallyCash
   };
 }
@@ -231,7 +265,7 @@ function buildHonobonoBillingListFromRecords_(records, honobono, summary) {
   records.forEach(function(record) {
     if (record.honobonoName || record.honobonoAmount > 0) {
       honobonoRows.push(toHonobonoBillingRow_(record));
-    } else if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) {
+    } else if (!record.honobonoName && record.delayedAmount > 0) {
       pastOnlyRows.push(toHonobonoBillingRow_(record));
     }
   });
@@ -274,7 +308,7 @@ function getListTabData_(targetMonth, tabName) {
   }
   if (tab === '当月停止' || tab === '請求保留') {
     return records.filter(function(record) {
-      return record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD;
+      return !!record.isMonthlyStop;
     });
   }
   if (tab === '現金支払い') {
@@ -284,7 +318,7 @@ function getListTabData_(targetMonth, tabName) {
   }
   if (tab === '合算・追加請求') {
     return records.filter(function(record) {
-      return record.additionalOnlyAmount > 0 || record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY;
+      return record.additionalOnlyAmount > 0 || record.delayedAmount > 0;
     });
   }
   if (tab === '要確認') {

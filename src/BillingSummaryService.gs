@@ -19,7 +19,7 @@ function buildHonobonoDisplaySummary_(records, honobono) {
 
   records.forEach(function(record) {
     var inList = record.honobonoName || record.honobonoAmount > 0
-      || record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY;
+      || Number(record.delayedAmount) > 0;
     if (!inList) return;
 
     if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) {
@@ -27,23 +27,21 @@ function buildHonobonoDisplaySummary_(records, honobono) {
       summary.cashAmount += record.honobonoAmount;
       return;
     }
-    if (record.billingStatus === APP.ADJUSTMENT_TYPES.HOLD || record.isMonthlyStop) {
+    if (record.isMonthlyStop) {
       summary.monthlyStopCount += 1;
       summary.monthlyStopAmount += record.honobonoAmount;
-      return;
+      if (!(record.delayedAmount > 0)) return;
     }
 
     summary.billingCount += 1;
-    if (record.billingStatus === APP.ADJUSTMENT_TYPES.PAST_ONLY) {
+    if (record.delayedAmount > 0) {
       summary.pastOnlyCount += 1;
-      summary.pastOnlyAmount += record.finalAmount;
-      summary.totalBillingAmount += record.finalAmount;
-    } else {
-      summary.totalBillingAmount += record.finalAmount;
-      if (record.additionalOnlyAmount > 0) {
-        summary.combinedCount += 1;
-        summary.combinedAmount += record.additionalOnlyAmount;
-      }
+      summary.pastOnlyAmount += record.delayedAmount;
+    }
+    summary.totalBillingAmount += record.finalAmount;
+    if (record.additionalOnlyAmount > 0) {
+      summary.combinedCount += 1;
+      summary.combinedAmount += record.additionalOnlyAmount;
     }
   });
 
@@ -73,7 +71,7 @@ function buildReconcileComparisonSummaryFromData_(records, eshu) {
   var billingTotal = 0;
   var reconcileTargetIds = {};
   (records || []).forEach(function(record) {
-    if (!record.isReconcileTarget || record.isMonthlyStop) return;
+    if (!record.isReconcileTarget || isStopOnlyBillingRecord_(record)) return;
     reconcileTargetIds[record.matchId] = true;
     billingCount += 1;
     billingTotal += record.finalAmount;

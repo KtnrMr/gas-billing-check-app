@@ -532,20 +532,93 @@ function syncAdditionalAdjustmentsFromContext_(ctx, matchId, name, amounts) {
   });
 }
 
-function applyHonobonoBillingRowWithContext_(ctx, matchId, status, additionalAmounts) {
+function normalizeDelayedBillingPayloadItems_(items, fallbackAmount) {
+  var source = Array.isArray(items) ? items : [];
+  if (!source.length && Number(fallbackAmount) > 0) {
+    source = [{ targetBillingMonth: '', amount: Number(fallbackAmount) }];
+  }
+  return source.map(function(item) {
+    return {
+      id: normalizeString_(item && item.id),
+      targetBillingMonth: normalizeYearMonth_(item && item.targetBillingMonth),
+      amount: Number(item && item.amount) || 0
+    };
+  }).filter(function(item) {
+    return item.amount > 0 || !!item.targetBillingMonth;
+  });
+}
+
+function delayedBillingItemsEqual_(existing, requested) {
+  function keys(items) {
+    return (items || []).map(function(item) {
+      return (item.targetBillingMonth || '') + '|' + (Number(item.amount) || 0);
+    }).sort();
+  }
+  var left = keys(existing);
+  var right = keys(requested);
+  if (left.length !== right.length) return false;
+  for (var i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function syncDelayedBillingAdjustmentsFromContext_(ctx, matchId, name, items) {
+  var existing = getDelayedBillingItems_(ctx.adjustments[matchId] || []);
+  var requested = normalizeDelayedBillingPayloadItems_(items);
+  if (delayedBillingItemsEqual_(existing, requested)) return;
+
+  var seenMonths = {};
+  requested.forEach(function(item) {
+    if (!item.targetBillingMonth) throw new Error('月遅れ請求の元の請求対象月を入力してください。');
+    if (item.targetBillingMonth >= ctx.month) {
+      throw new Error('月遅れ請求の元月は、請求整理の対象月より前の月を指定してください。');
+    }
+    if (!(item.amount > 0)) throw new Error('月遅れ請求の金額を入力してください。');
+    if (seenMonths[item.targetBillingMonth]) {
+      throw new Error('同じ元月の月遅れ請求が重複しています。');
+    }
+    seenMonths[item.targetBillingMonth] = true;
+  });
+
+  removeAdjustmentsByTypeFromContext_(ctx, matchId, APP.ADJUSTMENT_TYPES.PAST_ONLY);
+  requested.forEach(function(item) {
+    var payload = {
+      targetMonth: ctx.month,
+      matchId: matchId,
+      name: name,
+      type: APP.ADJUSTMENT_TYPES.PAST_ONLY,
+      targetBillingMonth: item.targetBillingMonth,
+      amount: item.amount,
+      reason: '月遅れ請求',
+      memo: ''
+    };
+    var result = ctx.batchMode
+      ? saveAdjustmentInBatch_(ctx, payload)
+      : saveAdjustmentNoLockWithoutRefresh_(payload);
+    if (!ctx.batchMode) {
+      if (!ctx.adjustments[matchId]) ctx.adjustments[matchId] = [];
+      ctx.adjustments[matchId].push({
+        id: result.adjustmentId,
+        matchId: matchId,
+        name: name,
+        type: APP.ADJUSTMENT_TYPES.PAST_ONLY,
+        targetBillingMonth: item.targetBillingMonth,
+        amount: item.amount,
+        reason: '月遅れ請求',
+        memo: ''
+      });
+    }
+  });
+}
+
+function applyHonobonoBillingRowWithContext_(ctx, matchId, status, additionalAmounts, delayedItems) {
   var matchIdNorm = normalizeIdForMatch_(matchId);
   if (!matchIdNorm) throw new Error('照合用IDが不正です。');
 
   var record = ctx.recordMap[matchIdNorm];
   var name = record ? record.name : '';
   var statusType = normalizeString_(status);
-  var adjList = ctx.adjustments[matchIdNorm] || [];
-  var hasCash = adjList.some(function(item) { return item.type === APP.ADJUSTMENT_TYPES.CASH; });
-  var hasHold = adjList.some(function(item) { return isMonthlyStopType_(item.type); });
-  var hasAdditional = adjList.some(function(item) { return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL; });
-
-  if (statusType === '通常' && !hasCash && !hasHold && !hasAdditional) return;
-
   removeAdjustmentsByTypeFromContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.CASH);
   removeAdjustmentsByTypeFromContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.HOLD);
   removeAdjustmentsByTypeFromContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.ADDITIONAL);
@@ -564,32 +637,19 @@ function applyHonobonoBillingRowWithContext_(ctx, matchId, status, additionalAmo
     var amounts = Array.isArray(additionalAmounts) ? additionalAmounts : [additionalAmounts];
     syncAdditionalAdjustmentsFromContext_(ctx, matchIdNorm, name, amounts);
   }
+  if (delayedItems !== undefined) {
+    syncDelayedBillingAdjustmentsFromContext_(ctx, matchIdNorm, name, delayedItems);
+  }
 }
 
-function applyPastOnlyBillingRowWithContext_(ctx, matchId, name, amount, remove) {
+function applyPastOnlyBillingRowWithContext_(ctx, matchId, name, items, remove) {
   var matchIdNorm = normalizeIdForMatch_(matchId);
   if (!matchIdNorm) throw new Error('照合用IDが不正です。');
-  if (ctx.honobono.rows[matchIdNorm]) {
-    throw new Error('ID ' + matchIdNorm + ' はほのぼの取込済みのため過去分のみ追加できません。');
+  if (remove) {
+    removeAdjustmentsByTypeFromContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.PAST_ONLY);
+    return;
   }
-  removeAdjustmentsByTypeFromContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.PAST_ONLY);
-  if (remove) return;
-  var num = Number(amount) || 0;
-  if (num <= 0) return;
-  var payload = {
-    targetMonth: ctx.month,
-    matchId: matchIdNorm,
-    name: normalizeString_(name),
-    type: APP.ADJUSTMENT_TYPES.PAST_ONLY,
-    amount: num,
-    reason: '過去分のみ請求',
-    memo: ''
-  };
-  if (ctx.batchMode) {
-    saveAdjustmentInBatch_(ctx, payload);
-  } else {
-    saveAdjustmentNoLockWithoutRefresh_(payload);
-  }
+  syncDelayedBillingAdjustmentsFromContext_(ctx, matchIdNorm, normalizeString_(name), items);
 }
 
 function applyHonobonoBillingRowNoLock_(month, matchId, status, additionalAmounts) {
@@ -605,14 +665,14 @@ function applyHonobonoBillingRowNoLock_(month, matchId, status, additionalAmount
   applyHonobonoBillingRowWithContext_(ctx, matchId, status, additionalAmounts);
 }
 
-function applyPastOnlyBillingRowNoLock_(month, matchId, name, amount, remove) {
+function applyPastOnlyBillingRowNoLock_(month, matchId, name, items, remove) {
   var ctx = {
     month: month,
     adjustments: getActiveAdjustments_(month),
     honobono: getLatestHonobonoMap_(month),
     recordMap: {}
   };
-  applyPastOnlyBillingRowWithContext_(ctx, matchId, name, amount, remove);
+  applyPastOnlyBillingRowWithContext_(ctx, matchId, name, items, remove);
 }
 
 function saveHonobonoBillingBatch(token, targetMonth, payload) {
@@ -656,7 +716,7 @@ function saveHonobonoBillingBatch(token, targetMonth, payload) {
       perf.mark('computeBillingRecordsFromData (initial)');
 
       changedRows.forEach(function(row) {
-        applyHonobonoBillingRowWithContext_(ctx, row.matchId, row.status, row.additionalAmounts || []);
+        applyHonobonoBillingRowWithContext_(ctx, row.matchId, row.status, row.additionalAmounts || [], row.delayedItems);
       });
 
       removedPastOnly.forEach(function(matchId) {
@@ -665,7 +725,10 @@ function saveHonobonoBillingBatch(token, targetMonth, payload) {
       });
 
       pastOnlyRows.forEach(function(row) {
-        applyPastOnlyBillingRowWithContext_(ctx, row.matchId, row.name, row.amount, false);
+        var delayedItems = row.delayedItems !== undefined
+          ? row.delayedItems
+          : [{ targetBillingMonth: row.targetBillingMonth || '', amount: row.amount }];
+        applyPastOnlyBillingRowWithContext_(ctx, row.matchId, row.name, delayedItems, false);
       });
       perf.mark('apply changes');
 

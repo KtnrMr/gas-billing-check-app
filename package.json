@@ -4,10 +4,11 @@
   "private": true,
   "description": "請求確定チェックアプリ（ほのぼの → e集ちゃんⅡ 照合）",
   "scripts": {
+    "check": "node tests/delayed-billing.test.js",
     "clasp:login": "clasp login",
     "clasp:pull": "clasp pull",
     "clasp:push": "clasp push",
-    "clasp:deploy": "clasp push && clasp deploy -i AKfycby_x1pphk6JWEgJ6hiD5pfKJgMJ-EeTHtnf1DqiPT7z9oVEchexmOJFlAmJlsagDFKK -d \"v0.6.0\"",
+    "clasp:deploy": "clasp push && clasp deploy -i AKfycby_x1pphk6JWEgJ6hiD5pfKJgMJ-EeTHtnf1DqiPT7z9oVEchexmOJFlAmJlsagDFKK -d \"v0.7.0 月遅れ請求対応\"",
     "clasp:open": "clasp open-script"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@ function judgeReconcile_(record, eshuRow, confirmedMap) {
   if (!eshuRow) {
     return { judgment: APP.RECONCILE_JUDGMENT.NOT_INPUT, note: '' };
   }
-  if (record.isMonthlyStop) {
+  if (isStopOnlyBillingRecord_(record)) {
     if (eshuRow.monthlyStop) {
       return { judgment: APP.RECONCILE_JUDGMENT.OK, note: '' };
     }
@@ -96,9 +96,9 @@ function buildReconcileRow_(month, record, eshuRow, judgment, note) {
   var eshuDisplay = formatEshuAmountForReconcile_(eshuRow);
   var diff = '';
   if (!eshuRow) {
-    diff = record.isMonthlyStop ? APP.MONTHLY_STOP_LABEL : record.finalAmount;
-  } else if (record.isMonthlyStop || eshuRow.monthlyStop) {
-    diff = record.isMonthlyStop === eshuRow.monthlyStop ? 0 : APP.MONTHLY_STOP_LABEL;
+    diff = isStopOnlyBillingRecord_(record) ? APP.MONTHLY_STOP_LABEL : record.finalAmount;
+  } else if (isStopOnlyBillingRecord_(record) || eshuRow.monthlyStop) {
+    diff = isStopOnlyBillingRecord_(record) === eshuRow.monthlyStop ? 0 : APP.MONTHLY_STOP_LABEL;
   } else {
     diff = record.finalAmount - eshuRow.amount;
   }
@@ -113,7 +113,7 @@ function buildReconcileRow_(month, record, eshuRow, judgment, note) {
     '請求状態': record.billingStatus,
     'ほのぼの請求額': record.honobonoAmount,
     '追加請求額': record.additionalAmount,
-    '最終請求額': record.isMonthlyStop ? APP.MONTHLY_STOP_LABEL : record.finalAmount,
+    '最終請求額': isStopOnlyBillingRecord_(record) ? APP.MONTHLY_STOP_LABEL : record.finalAmount,
     'e集ちゃん請求金額': eshuDisplay,
     '差額': diff,
     '判定': judgment,
