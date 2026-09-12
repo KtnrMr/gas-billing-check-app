@@ -11,6 +11,9 @@ function buildHonobonoDisplaySummary_(records, honobono) {
     combinedAmount: 0,
     cashCount: 0,
     cashAmount: 0,
+    cashCurrentAmount: 0,
+    cashAdditionalAmount: 0,
+    cashDelayedAmount: 0,
     monthlyStopCount: 0,
     monthlyStopAmount: 0,
     pastOnlyCount: 0,
@@ -22,14 +25,19 @@ function buildHonobonoDisplaySummary_(records, honobono) {
       || Number(record.delayedAmount) > 0;
     if (!inList) return;
 
-    if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) {
-      summary.cashCount += 1;
-      summary.cashAmount += record.honobonoAmount;
-      return;
-    }
     if (record.isMonthlyStop) {
       summary.monthlyStopCount += 1;
       summary.monthlyStopAmount += record.honobonoAmount;
+    }
+    if (isCashPaymentRecord_(record)) {
+      summary.cashCount += 1;
+      summary.cashAmount += record.finalAmount;
+      summary.cashCurrentAmount += record.isMonthlyStop ? 0 : record.honobonoAmount;
+      summary.cashAdditionalAmount += record.additionalOnlyAmount;
+      summary.cashDelayedAmount += record.delayedAmount;
+      return;
+    }
+    if (record.isMonthlyStop) {
       if (!(record.delayedAmount > 0)) return;
     }
 

@@ -628,6 +628,8 @@ function applyHonobonoBillingRowWithContext_(ctx, matchId, status, additionalAmo
       name: name,
       reason: '手動設定'
     });
+    var cashAdditionalAmounts = Array.isArray(additionalAmounts) ? additionalAmounts : [additionalAmounts];
+    syncAdditionalAdjustmentsFromContext_(ctx, matchIdNorm, name, cashAdditionalAmounts);
   } else if (statusType === APP.ADJUSTMENT_TYPES.HOLD) {
     upsertAdjustmentByTypeWithContext_(ctx, matchIdNorm, APP.ADJUSTMENT_TYPES.HOLD, {
       name: name,

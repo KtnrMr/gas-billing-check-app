@@ -40,7 +40,9 @@
 
     <main class="main">
       <div id="message" class="message" hidden></div>
-      <div id="loading" class="loading" hidden>処理中...</div>
+      <div id="loading" class="loading" hidden role="status" aria-live="polite">
+        <div class="loading-panel"><span class="loading-spinner" aria-hidden="true"></span><strong>処理中</strong></div>
+      </div>
 
       <section id="screen-honobono" class="screen">
         <header class="screen-header">

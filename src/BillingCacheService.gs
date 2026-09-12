@@ -98,7 +98,7 @@ function billingRecordToCacheRow_(month, syncedAt, record) {
     '警告': serializeWarningsForCache_(record.warnings),
     '調整JSON': serializeAdjustmentsForCache_(record.adjustments),
     '通常現金': record.isUsuallyCash ? '1' : '',
-    '計算仕様': 'MONTHLY_DELAYED_V1'
+    '計算仕様': 'CASH_COMBINED_DELAYED_V2'
   };
 }
 
@@ -120,6 +120,7 @@ function billingRecordFromCacheRow_(row) {
     masterKana: normalizeString_(row['フリガナ']),
     masterCategory: normalizeString_(row['マスタ区分']) || APP.MASTER_CATEGORY.UNREGISTERED,
     billingStatus: normalizeString_(row['請求状態']),
+    isCashPayment: normalizeString_(row['請求状態']).indexOf(APP.ADJUSTMENT_TYPES.CASH) === 0,
     isUsuallyCash: isTruthyFlag_(row['通常現金']),
     honobonoAmount: Number(row['ほのぼの請求額']) || 0,
     additionalAmount: additionalOnlyAmount + pastOnlyAmount,
@@ -154,7 +155,7 @@ function readBillingRecordCache_(targetMonth) {
     return yearMonthKeyEquals_(row['対象月'], month);
   });
   if (cachedRows.some(function(row) {
-    return normalizeString_(row['計算仕様']) !== 'MONTHLY_DELAYED_V1';
+    return normalizeString_(row['計算仕様']) !== 'CASH_COMBINED_DELAYED_V2';
   })) return null;
 
   var records = [];

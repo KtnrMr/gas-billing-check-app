@@ -70,7 +70,7 @@ function attachBillingMemosToHonobonoList_(targetMonth, result) {
 
 function formatBillingAmountDetail_(record) {
   if (isStopOnlyBillingRecord_(record)) return APP.MONTHLY_STOP_LABEL;
-  if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) return APP.ADJUSTMENT_TYPES.CASH;
+  var isCash = isCashPaymentRecord_(record);
 
   var additionalItems = (record.adjustments || []).filter(function(item) {
     return item.type === APP.ADJUSTMENT_TYPES.ADDITIONAL;
@@ -92,6 +92,7 @@ function formatBillingAmountDetail_(record) {
   if (parts.length > 0) {
     return formatYenDisplay_(record.finalAmount) + '（' + parts.join('＋') + '）';
   }
+  if (isCash) return APP.ADJUSTMENT_TYPES.CASH;
   return formatYenDisplay_(record.finalAmount);
 }
 
@@ -100,7 +101,7 @@ function isBillingHoldRecord_(record) {
 }
 
 function isBillingCashRecord_(record) {
-  return record.billingStatus === APP.ADJUSTMENT_TYPES.CASH;
+  return isCashPaymentRecord_(record);
 }
 
 function isBillingPastOnlyRecord_(record) {
@@ -112,6 +113,12 @@ function isHonobonoBillingRowRecord_(record) {
 }
 
 function buildBillingPrintEntry_(record, memo) {
+  var hasAdditional = Number(record.additionalOnlyAmount) > 0;
+  var hasDelayed = Number(record.delayedAmount) > 0;
+  var kind = isCashPaymentRecord_(record) ? '現金' : '通常';
+  if (hasAdditional) kind += '・合算';
+  if (hasDelayed) kind += '・月遅れ';
+  if (record.isMonthlyStop) kind += '・当月停止';
   return {
     matchId: record.matchId,
     rawId: record.rawId,
@@ -121,7 +128,9 @@ function buildBillingPrintEntry_(record, memo) {
     amountDetail: formatBillingAmountDetail_(record),
     memo: memo || '',
     billingStatus: record.billingStatus,
-    delayedAmount: record.delayedAmount || 0
+    delayedAmount: record.delayedAmount || 0,
+    classificationLabel: kind,
+    isCombined: hasAdditional
   };
 }
 
@@ -143,7 +152,9 @@ function buildDelayedBillingPrintEntry_(record, memo) {
       + (details.length ? '（' + details.join('＋') + '）' : ''),
     memo: memo || '',
     billingStatus: record.billingStatus,
-    delayedAmount: record.delayedAmount || 0
+    delayedAmount: record.delayedAmount || 0,
+    classificationLabel: '月遅れ',
+    isCombined: false
   };
 }
 
@@ -160,16 +171,13 @@ function classifyBillingPrintLists_(records, memoMap) {
         rawId: record.rawId,
         name: record.name,
         honobonoAmount: record.honobonoAmount,
-        memo: memo
+        memo: memo,
+        classificationLabel: '当月停止',
+        isCombined: false
       });
     }
     if (isBillingCashRecord_(record)) {
-      cashList.push({
-        rawId: record.rawId,
-        name: record.name,
-        honobonoAmount: record.honobonoAmount,
-        memo: memo
-      });
+      cashList.push(buildBillingPrintEntry_(record, memo));
       return;
     }
     if (isBillingPastOnlyRecord_(record)) {
@@ -206,7 +214,10 @@ function buildBillingPrintSummary_(records, lists) {
     pastOnlyAmount: summary.pastOnlyAmount || 0,
     monthlyStopCount: (lists.monthlyStopList || []).length,
     cashCount: (lists.cashList || []).length,
-    cashAmount: summary.cashAmount || summary.cashTotal || 0
+    cashAmount: summary.cashAmount || summary.cashTotal || 0,
+    cashCurrentAmount: summary.cashCurrentAmount || 0,
+    cashAdditionalAmount: summary.cashAdditionalAmount || 0,
+    cashDelayedAmount: summary.cashDelayedAmount || 0
   };
 }
 

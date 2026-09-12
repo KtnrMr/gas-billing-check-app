@@ -1,5 +1,5 @@
 var APP = Object.freeze({
-  VERSION: '0.7.0',
+  VERSION: '0.8.0',
   MONTHLY_STOP_LABEL: '当月停止',
   LEGACY_HOLD_LABEL: '請求保留',
   TIMEZONE: 'Asia/Tokyo',

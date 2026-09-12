@@ -22,6 +22,12 @@ function isStopOnlyBillingRecord_(record) {
   return !!record && !!record.isMonthlyStop && !(Number(record.delayedAmount) > 0);
 }
 
+function isCashPaymentRecord_(record) {
+  if (!record) return false;
+  return !!record.isCashPayment
+    || normalizeString_(record.billingStatus).indexOf(APP.ADJUSTMENT_TYPES.CASH) === 0;
+}
+
 function buildBillingRecordContext_(targetMonth) {
   var month = normalizeYearMonth_(targetMonth);
   var perf = startPerfLog_('buildBillingRecordContext_', { month: month });
@@ -105,6 +111,7 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
     var finalAmount = 0;
     var isInputTarget = false;
     var isMonthlyStop = false;
+    var isCashPayment = false;
     var showOnInputList = false;
     var canCopyAmount = false;
     var isReconcileTarget = false;
@@ -116,7 +123,13 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
 
     if (hasHold) {
       isMonthlyStop = true;
-      if (pastOnlyAmount > 0) {
+      if (isUsuallyCash) {
+        isCashPayment = true;
+        finalAmount = pastOnlyAmount;
+        billingStatus = pastOnlyAmount > 0
+          ? '現金支払い・当月停止＋月遅れ請求'
+          : '現金支払い・当月停止';
+      } else if (pastOnlyAmount > 0) {
         billingStatus = '当月停止＋月遅れ請求';
         finalAmount = pastOnlyAmount;
         isInputTarget = true;
@@ -131,8 +144,12 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
         isReconcileTarget = !isUsuallyCash;
       }
     } else if (hasCash) {
-      billingStatus = APP.ADJUSTMENT_TYPES.CASH;
-      finalAmount = 0;
+      isCashPayment = true;
+      finalAmount = honobonoAmount + additionalOnlyAmount + pastOnlyAmount;
+      if (additionalOnlyAmount > 0 && pastOnlyAmount > 0) billingStatus = '現金支払い＋合算＋月遅れ請求';
+      else if (additionalOnlyAmount > 0) billingStatus = '現金支払い＋合算';
+      else if (pastOnlyAmount > 0) billingStatus = '現金支払い＋月遅れ請求';
+      else billingStatus = APP.ADJUSTMENT_TYPES.CASH;
     } else if (hasPastOnly && !honobonoRow) {
       billingStatus = '月遅れ請求のみ';
       finalAmount = pastOnlyAmount + additionalOnlyAmount;
@@ -153,12 +170,6 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       isReconcileTarget = true;
     }
 
-    if (hasCash && !hasHold) {
-      isInputTarget = false;
-      showOnInputList = false;
-      isReconcileTarget = false;
-    }
-
     return {
       matchId: matchId,
       rawId: honobonoRow ? honobonoRow.rawId : (master ? master.rawId : matchId),
@@ -168,6 +179,7 @@ function computeBillingRecordsFromData_(targetMonth, users, honobono, adjustment
       masterKana: master ? master.kana : '',
       masterCategory: master ? master.category : APP.MASTER_CATEGORY.UNREGISTERED,
       billingStatus: billingStatus,
+      isCashPayment: isCashPayment,
       isUsuallyCash: isUsuallyCash,
       honobonoAmount: honobonoAmount,
       additionalAmount: additionalOnlyAmount + pastOnlyAmount,
@@ -230,8 +242,8 @@ function toHonobonoBillingRow_(record) {
     return { id: item.id, amount: item.amount, memo: item.memo || '' };
   });
   var status = '通常';
-  if (record.billingStatus === APP.ADJUSTMENT_TYPES.CASH) status = APP.ADJUSTMENT_TYPES.CASH;
-  else if (record.isMonthlyStop) status = APP.ADJUSTMENT_TYPES.HOLD;
+  if (record.isMonthlyStop) status = APP.ADJUSTMENT_TYPES.HOLD;
+  else if (isCashPaymentRecord_(record)) status = APP.ADJUSTMENT_TYPES.CASH;
   else if (!record.honobonoName && record.delayedAmount > 0) status = '月遅れ請求のみ';
   else if (additionalItems.length) status = '合算';
   var delayedItems = getDelayedBillingItems_(record.adjustments || []).map(function(item) {
@@ -250,6 +262,7 @@ function toHonobonoBillingRow_(record) {
     honobonoAmount: record.honobonoAmount,
     status: status,
     billingStatus: record.billingStatus,
+    isCashPayment: isCashPaymentRecord_(record),
     additionalAmount: record.additionalOnlyAmount,
     additionalItems: additionalItems,
     delayedAmount: record.delayedAmount || 0,
@@ -313,7 +326,7 @@ function getListTabData_(targetMonth, tabName) {
   }
   if (tab === '現金支払い') {
     return records.filter(function(record) {
-      return record.billingStatus === APP.ADJUSTMENT_TYPES.CASH;
+      return isCashPaymentRecord_(record);
     });
   }
   if (tab === '合算・追加請求') {

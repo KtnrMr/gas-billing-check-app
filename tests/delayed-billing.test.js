@@ -29,13 +29,13 @@ function adjustment(type, amount, targetBillingMonth) {
   return { type, amount: amount || 0, targetBillingMonth: targetBillingMonth || '' };
 }
 
-function compute(honobonoRows, adjustments) {
+function compute(honobonoRows, adjustments, cashMaster) {
   return context.computeBillingRecordsFromData_(
     '2026-09',
     { '001': { rawId: '001', name: '山田太郎', kana: 'ヤマダタロウ', category: '利用中' } },
     { rows: honobonoRows || {}, list: [] },
     adjustments || {},
-    {}
+    cashMaster || {}
   );
 }
 
@@ -82,5 +82,42 @@ assert.strictEqual(summary.monthlyStopCount, 1);
 assert.strictEqual(summary.pastOnlyCount, 1);
 assert.strictEqual(summary.billingCount, 1);
 assert.strictEqual(summary.totalBillingAmount, 3000);
+
+const cashCombinedAndDelayed = compute(
+  { '001': { rawId: '001', name: '山田太郎', amount: 12000, judgment: 'OK' } },
+  { '001': [
+    adjustment(context.APP.ADJUSTMENT_TYPES.CASH),
+    adjustment(context.APP.ADJUSTMENT_TYPES.ADDITIONAL, 1000),
+    adjustment(context.APP.ADJUSTMENT_TYPES.PAST_ONLY, 3000, '2026-07')
+  ] }
+)[0];
+assert.strictEqual(cashCombinedAndDelayed.billingStatus, '現金支払い＋合算＋月遅れ請求');
+assert.strictEqual(cashCombinedAndDelayed.finalAmount, 16000);
+assert.strictEqual(cashCombinedAndDelayed.isCashPayment, true);
+assert.strictEqual(cashCombinedAndDelayed.isInputTarget, false);
+assert.strictEqual(cashCombinedAndDelayed.isReconcileTarget, false);
+
+const cashSummary = context.buildHonobonoDisplaySummary_([cashCombinedAndDelayed], {
+  rows: { '001': { amount: 12000 } }
+});
+assert.strictEqual(cashSummary.billingCount, 0);
+assert.strictEqual(cashSummary.cashCount, 1);
+assert.strictEqual(cashSummary.cashAmount, 16000);
+assert.strictEqual(cashSummary.cashCurrentAmount, 12000);
+assert.strictEqual(cashSummary.cashAdditionalAmount, 1000);
+assert.strictEqual(cashSummary.cashDelayedAmount, 3000);
+
+const cashHoldAndDelayed = compute(
+  { '001': { rawId: '001', name: '山田太郎', amount: 12000, judgment: 'OK' } },
+  { '001': [
+    adjustment(context.APP.ADJUSTMENT_TYPES.HOLD),
+    adjustment(context.APP.ADJUSTMENT_TYPES.PAST_ONLY, 3000, '2026-07')
+  ] },
+  { '001': true }
+)[0];
+assert.strictEqual(cashHoldAndDelayed.finalAmount, 3000);
+assert.strictEqual(cashHoldAndDelayed.isCashPayment, true);
+assert.strictEqual(cashHoldAndDelayed.isMonthlyStop, true);
+assert.strictEqual(cashHoldAndDelayed.isInputTarget, false);
 
 console.log('delayed billing checks passed');

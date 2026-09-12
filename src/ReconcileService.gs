@@ -122,7 +122,7 @@ function buildReconcileRow_(month, record, eshuRow, judgment, note) {
 }
 
 function buildExtraInputReconcileRow_(month, eshuRow, billingRecord, master) {
-  var isCash = billingRecord && billingRecord.billingStatus === APP.ADJUSTMENT_TYPES.CASH;
+  var isCash = billingRecord && isCashPaymentRecord_(billingRecord);
   var note = isCash
     ? '現金支払いだが e集ちゃんに金額あり'
     : '請求整理にないが e集ちゃんに金額あり';

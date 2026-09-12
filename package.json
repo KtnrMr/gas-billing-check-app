@@ -8,7 +8,7 @@
     "clasp:login": "clasp login",
     "clasp:pull": "clasp pull",
     "clasp:push": "clasp push",
-    "clasp:deploy": "clasp push && clasp deploy -i AKfycby_x1pphk6JWEgJ6hiD5pfKJgMJ-EeTHtnf1DqiPT7z9oVEchexmOJFlAmJlsagDFKK -d \"v0.7.0 月遅れ請求対応\"",
+    "clasp:deploy": "clasp push && clasp deploy -i AKfycby_x1pphk6JWEgJ6hiD5pfKJgMJ-EeTHtnf1DqiPT7z9oVEchexmOJFlAmJlsagDFKK -d \"v0.8.0 現金合算・処理表示改善\"",
     "clasp:open": "clasp open-script"
   },
   "devDependencies": {
